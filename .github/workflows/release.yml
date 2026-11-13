@@ -28,7 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run fetch-ffmpeg -- --win
       - run: node scripts/make-icon.mjs && node scripts/gen-nsis.mjs
-      - run: npx electron-builder --win nsis --x64 --publish always
+      - run: npx electron-builder --win nsis portable --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -79,6 +79,6 @@ jobs:
           TAG="v$(node -p "require('./package.json').version")"
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest \
             --title "MINIME $TAG" \
-            --notes "Instaladores: Windows (MINIME-Setup-*.exe) e Mac (MINIME-*-mac-arm64.dmg pra Apple Silicon, MINIME-*-mac-x64.dmg pra Intel). Veja o README pra liberar o app no Mac na primeira abertura."
+            --notes "Windows: MINIME-Setup-*.exe (instalador) ou MINIME-Portatil-*.exe (roda sem instalar). Mac (MINIME-*-mac-arm64.dmg pra Apple Silicon, MINIME-*-mac-x64.dmg pra Intel). Veja o README pra liberar o app no Mac na primeira abertura."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

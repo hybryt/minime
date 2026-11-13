@@ -616,6 +616,12 @@ button { cursor: default; }
 [data-platform="darwin"] .toolbar { left: 88px; }
 [data-platform="darwin"] .quick-shell .toolbar { left: 88px; }
 
+/* ---------- Selo de modo teste / portátil ---------- */
+.test-badge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: 7px; margin: 0 2px 0 -2px;
+  color: var(--orange-ink); background: color-mix(in srgb, var(--orange) 16%, transparent);
+}
+
 /* ---------- Atualização ---------- */
 .tb-btn.update { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink); padding: 0 12px 0 10px; }
 .tb-btn.update:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }

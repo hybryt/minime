@@ -87,6 +87,18 @@ Fechou a janela, o MINIME cancela o que estava convertendo, encerra todo process
 
 Pra desinstalar: Configurações ▶ Aplicativos ▶ MINIME ▶ Desinstalar. O menu do botão direito e o início automático saem juntos.
 
+### Testar sem instalar
+
+```
+Atalho "Testar MINIME (sem instalar)" ─▶ roda o código desta pasta, abre em ~2 s, mostra o selo "Teste"
+MINIME-Portatil-<versão>.exe ──────────▶ o app de verdade num arquivo só, abre em ~11 s (descompacta a cada vez)
+dist/win-unpacked/MINIME.exe ──────────▶ o app empacotado já descompactado, abre em 1,5 s (sai do npm run build)
+```
+
+Nenhum dos três entra em Programas, cria atalho ou mexe no registro. O portátil apaga a pasta temporária ao fechar. Feche a cópia instalada antes de abrir uma de teste: as duas usam as mesmas preferências e só uma janela do MINIME roda por vez.
+
+No Mac dá pra testar abrindo o MINIME direto de dentro do DMG, sem arrastar pra Aplicativos.
+
 ### Mac
 
 1. Baixe o DMG certo na página [Releases](https://github.com/hybryt/minime/releases/latest):

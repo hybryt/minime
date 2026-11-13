@@ -7,3 +7,4 @@ output/
 Thumbs.db
 *.sync-conflict-*
 .claude/
+*.lnk

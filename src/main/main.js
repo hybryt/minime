@@ -17,6 +17,10 @@ const ICON = path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
+// Versão portátil (um .exe só, sem instalar): o executável real fica em PORTABLE_EXECUTABLE_FILE;
+// o process.execPath aponta pra uma pasta temporária que some ao fechar.
+const PORTABLE_EXE = process.env.PORTABLE_EXECUTABLE_FILE || null;
+const EXE_PATH = PORTABLE_EXE || process.execPath;
 
 app.setAppUserModelId('br.com.alanmore.minime');
 
@@ -51,7 +55,7 @@ function parseArgs(argv) {
 const launch = parseArgs(process.argv);
 
 function shellCommand() {
-  return shellMenu.launchCommand(app.isPackaged, process.execPath, app.getAppPath());
+  return shellMenu.launchCommand(app.isPackaged, EXE_PATH, app.getAppPath());
 }
 
 if (launch.mode === 'register' || launch.mode === 'unregister') {
@@ -233,7 +237,7 @@ function installerPrefs() {
 }
 
 function loginOptions() {
-  return IS_WIN ? { name: 'MINIME', path: process.execPath, args: ['--login'] } : {};
+  return IS_WIN ? { name: 'MINIME', path: EXE_PATH, args: ['--login'] } : {};
 }
 function getOpenAtLogin() {
   if (!app.isPackaged) return !!readPrefs().openAtLogin;
@@ -374,7 +378,7 @@ ipcMain.handle('theme:set', (_e, theme) => {
 });
 
 ipcMain.handle('app:hardware', () => getHardware());
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, platform: process.platform }));
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, portable: !!PORTABLE_EXE, platform: process.platform }));
 ipcMain.handle('app:system', async () => {
   const hw = await getHardware();
   return { ...(hw || {}), emulated: !!app.runningUnderARM64Translation, lanes: jobs.lanes() };

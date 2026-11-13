@@ -122,6 +122,8 @@
     loading: 0,
     menuOn: null,
     version: '',
+    packaged: null,
+    portable: false,
     theme: 'system',
     prefs: null,
     update: null,
@@ -381,11 +383,17 @@
       <button class="tb-btn" data-act="add" ${busy ? 'disabled' : ''} title="Adicionar arquivos">${I.plus}Adicionar</button>
       ${has ? `<button class="tb-btn icon" data-act="clear" ${busy ? 'disabled' : ''} title="Limpar a lista" aria-label="Limpar a lista">${I.trash}</button>` : ''}` : '';
     return `<div class="dragbar"></div>
-      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}${files}
+      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}${testBadge()}${files}
         <span class="sep"></span>
         <span id="upd-badge">${updateBadge()}</span>
         <button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button>
       </nav>`;
+  }
+
+  function testBadge() {
+    if (state.packaged === false) return '<span class="test-badge" title="Rodando o código do projeto, sem instalar">Teste</span>';
+    if (state.portable) return '<span class="test-badge" title="Versão portátil, sem instalar">Portátil</span>';
+    return '';
   }
 
   function updateBadge() {
@@ -822,7 +830,7 @@
     }
     app.innerHTML = `<div class="quick-shell">
       <div class="dragbar"></div>
-      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}<span class="sep"></span><span id="upd-badge">${updateBadge()}</span><button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button></nav>
+      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}${testBadge()}<span class="sep"></span><span id="upd-badge">${updateBadge()}</span><button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button></nav>
       <main class="sheet glass quick">
         <div class="sheet-body"><div class="sheet-inner">${body}</div></div>
         <div class="sheet-foot">${foot}${credit('credit-line')}</div>
@@ -949,12 +957,12 @@
       case 'latest': return { text: `Você está na versão mais recente (${esc(state.version)}).`, act: ['upd-check', 'Procurar de novo'] };
       case 'available': return u.selfInstall
         ? { text: `Versão ${v} disponível.`, act: ['upd-download', 'Baixar e instalar'] }
-        : { text: `Versão ${v} disponível. No Mac, baixe e arraste pra Aplicativos.`, act: ['upd-download', 'Baixar no GitHub'] };
+        : { text: IS_MAC ? `Versão ${v} disponível. Baixe e arraste pra Aplicativos.` : `Versão ${v} disponível. Baixe o portátil novo no GitHub.`, act: ['upd-download', 'Baixar no GitHub'] };
       case 'downloading': return { text: `Baixando a versão ${v}… ${u.percent || 0}%` };
       case 'ready': return { text: `Versão ${v} pronta. Instala sozinha quando você fechar o MINIME.`, act: ['upd-install', 'Reiniciar agora'] };
       case 'offline': return { text: 'Sem internet agora. Procuro de novo quando a conexão voltar.', act: ['upd-check', 'Tentar de novo'] };
       case 'error': return { text: esc(u.error || 'Não consegui procurar atualização.'), act: ['upd-check', 'Tentar de novo'] };
-      case 'dev': return { text: 'Atualização desligada no modo de desenvolvimento.' };
+      case 'dev': return { text: 'Modo teste: roda o código do projeto, sem atualização automática.' };
       default: return { text: `Versão ${esc(state.version)}.`, act: ['upd-check', 'Procurar agora'] };
     }
   }
@@ -1322,7 +1330,10 @@
       }
     });
     render();
-    api.info().then((i) => { state.version = i.version; });
+    api.info().then((i) => {
+      state.version = i.version; state.packaged = i.packaged; state.portable = !!i.portable;
+      if (!i.packaged || i.portable) for (const w of document.querySelectorAll('.wordmark')) if (!w.nextElementSibling?.classList.contains('test-badge')) w.insertAdjacentHTML('afterend', testBadge());
+    });
     api.onUpdate((u) => {
       state.update = u;
       refreshBadge();

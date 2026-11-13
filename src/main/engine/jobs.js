@@ -1,0 +1,313 @@
+'use strict';
+// Orquestra a lista de arquivos: leitura, miniaturas, estimativa de tamanho e a fila de conversão.
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const F = require('./formats');
+const ff = require('./ffmpeg');
+const img = require('./image');
+const av = require('./av');
+
+const items = new Map(); // id -> item
+const estimateCache = new Map(); // chave -> bytes
+let hw = null;
+
+function setHardware(h) { hw = h; }
+
+// ---------- Entrada de arquivos ----------
+
+function walk(dir, out, depth = 0) {
+  if (depth > 6 || out.length > 3000) return;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, out, depth + 1);
+    else if (F.categoryOf(F.extOf(e.name))) out.push(p);
+  }
+}
+
+function expandPaths(paths) {
+  const out = [];
+  for (const p of paths) {
+    try {
+      const st = fs.statSync(p);
+      if (st.isDirectory()) walk(p, out);
+      else if (F.categoryOf(F.extOf(p))) out.push(p);
+    } catch {}
+  }
+  return [...new Set(out.map((p) => path.resolve(p)))];
+}
+
+function fmtDuration(s) {
+  if (!s) return '';
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+function describe(item) {
+  const i = item.info;
+  if (item.category === 'image') return `${i.width} × ${i.height}${i.pages > 1 ? ` · ${i.pages} quadros` : ''}`;
+  if (item.category === 'video') {
+    const v = i.video;
+    return [fmtDuration(i.duration), v ? `${v.width} × ${v.height}` : '', v ? `${Math.round(v.fps)} fps` : ''].filter(Boolean).join(' · ');
+  }
+  const a = i.audio[0];
+  return [fmtDuration(i.duration), a ? `${Math.round((a.bitrate || i.bitrate || 0) / 1000) || '?'} kbps` : ''].filter(Boolean).join(' · ');
+}
+
+async function probeOne(p) {
+  const ext = F.extOf(p);
+  const category = F.categoryOf(ext);
+  const size = fs.statSync(p).size;
+  const id = crypto.createHash('sha1').update(p.toLowerCase()).digest('hex').slice(0, 12);
+  const base = { id, path: p, name: path.basename(p), ext, category, size };
+  try {
+    const info = category === 'image' ? await img.probeImage(p, ext) : await ff.probe(p);
+    if (category === 'video' && !info.video) throw new Error('Não encontrei a faixa de vídeo nesse arquivo.');
+    if (category === 'audio' && !info.audio.length) throw new Error('Não encontrei áudio nesse arquivo.');
+    const item = { ...base, info, ok: true };
+    item.meta = describe(item);
+    item.targets = F.targetsFor(ext).map((t) => F.describeTarget(category, t, ext));
+    item.defaultTarget = F.defaultTarget(ext);
+    items.set(id, item);
+    return publicItem(item);
+  } catch (e) {
+    const item = { ...base, ok: false, error: friendlyError(e), targets: [], meta: '' };
+    items.set(id, item);
+    return publicItem(item);
+  }
+}
+
+function publicItem(it) {
+  return {
+    id: it.id, path: it.path, name: it.name, ext: it.ext, category: it.category, size: it.size,
+    ok: it.ok, error: it.error || null, meta: it.meta, targets: it.targets, defaultTarget: it.defaultTarget,
+    hasAudio: it.info ? (it.category === 'image' ? false : it.info.audio.length > 0) : false,
+    hasCover: it.info ? !!it.info.hasCover : false,
+  };
+}
+
+async function addPaths(paths) {
+  const files = expandPaths(paths);
+  const out = await pool(files, 6, probeOne);
+  return out;
+}
+
+function remove(ids) { for (const id of ids) items.delete(id); }
+
+async function thumb(id) {
+  const it = items.get(id);
+  if (!it || !it.ok) return null;
+  try {
+    if (it.category === 'image') {
+      const b = await img.thumbnail(it.path, it.ext, 160);
+      return `data:image/webp;base64,${b.toString('base64')}`;
+    }
+    const b = await ff.thumbnail(it.path, it.info, 160);
+    return b && b.length ? `data:image/jpeg;base64,${b.toString('base64')}` : null;
+  } catch { return null; }
+}
+
+// ---------- Utilidades ----------
+
+async function pool(list, n, fn) {
+  const out = new Array(list.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(n, list.length) }, async () => {
+    while (i < list.length) {
+      const k = i++;
+      out[k] = await fn(list[k], k);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+function friendlyError(e) {
+  const m = String((e && e.message) || e);
+  if (/Invalid data found|could not find codec|unsupported image format|Input file contains unsupported/i.test(m)) return 'Arquivo corrompido ou num formato que não consegui ler.';
+  if (/No such file|ENOENT/i.test(m)) return 'O arquivo não existe mais nesse caminho.';
+  if (/EACCES|EPERM|Permission denied/i.test(m)) return 'Sem permissão pra gravar nessa pasta.';
+  if (/ENOSPC|No space left/i.test(m)) return 'Disco cheio.';
+  if (/Cancelado/i.test(m)) return 'Cancelado.';
+  return m.length > 180 ? `${m.slice(0, 180)}…` : m;
+}
+
+async function avInfoFor(it) {
+  if (it.category !== 'image') return it.info;
+  if (!it.avInfo) it.avInfo = await ff.probe(it.path);
+  return it.avInfo;
+}
+
+// GIF animado indo pra MP4 é tratado como vídeo.
+async function asAvItem(it) {
+  return { ...it, info: await avInfoFor(it) };
+}
+
+// ---------- Estimativa ----------
+
+function imageKey(it, target, s) {
+  return JSON.stringify([it.path, it.size, target, s.objective === 'lossless', Math.round(s.quality), s.resize, !!s.stripMetadata]);
+}
+
+const estimateGens = new Map(); // chave da janela -> geração atual
+
+// jobs: [{id, target}] -> { [id]: { bytes, approx, detail } }
+async function estimate(jobs, settings, key = 'default') {
+  const gen = (estimateGens.get(key) || 0) + 1;
+  estimateGens.set(key, gen);
+  const stale = () => estimateGens.get(key) !== gen;
+  const result = {};
+  const imageJobs = [];
+  for (const j of jobs) {
+    const it = items.get(j.id);
+    if (!it || !it.ok) continue;
+    const kind = av.outputKind(it.category, j.target);
+    if (kind === 'image') { imageJobs.push({ it, target: j.target }); continue; }
+    try {
+      const avIt = await asAvItem(it);
+      const p = av.plan(avIt, j.target, settings, hw);
+      result[j.id] = { bytes: Math.round(p.estimate), approx: !p.detail.remux, detail: p.detail };
+    } catch (e) {
+      result[j.id] = { bytes: 0, error: friendlyError(e) };
+    }
+  }
+
+  // Imagens: codifica de verdade (até 12); acima disso, amostra e extrapola pela proporção.
+  const s = settings.image;
+  const LIMIT = 12;
+  const sample = imageJobs.length <= LIMIT ? imageJobs
+    : Array.from({ length: LIMIT }, (_, k) => imageJobs[Math.floor((k * imageJobs.length) / LIMIT)]);
+  const sampled = new Set(sample.map((x) => x.it.id));
+  await pool(sample, 3, async ({ it, target }) => {
+    if (stale()) return;
+    const key = imageKey(it, target, s);
+    let bytes = estimateCache.get(key);
+    if (bytes === undefined) {
+      try {
+        bytes = await img.estimateImage(it.path, it.ext, it.info, target, s);
+        estimateCache.set(key, bytes);
+        if (estimateCache.size > 4000) estimateCache.delete(estimateCache.keys().next().value);
+      } catch (e) { result[it.id] = { bytes: 0, error: friendlyError(e) }; return; }
+    }
+    result[it.id] = { bytes, approx: false };
+  });
+  if (stale()) return { stale: true };
+
+  if (imageJobs.length > sample.length) {
+    // Proporção saída/entrada por (formato de origem, destino), com bytes por pixel de reserva.
+    const ratios = {};
+    let pxBytes = 0, px = 0;
+    for (const { it, target } of sample) {
+      const r = result[it.id];
+      if (!r || !r.bytes) continue;
+      const k = `${it.ext}>${target}`;
+      ratios[k] = ratios[k] || { a: 0, b: 0 };
+      ratios[k].a += r.bytes; ratios[k].b += it.size;
+      const d = img.resizedDims(it.info.width, it.info.height, s.resize);
+      pxBytes += r.bytes; px += d.w * d.h;
+    }
+    for (const { it, target } of imageJobs) {
+      if (sampled.has(it.id)) continue;
+      const key = imageKey(it, target, s);
+      if (estimateCache.has(key)) { result[it.id] = { bytes: estimateCache.get(key), approx: false }; continue; }
+      const r = ratios[`${it.ext}>${target}`];
+      const d = img.resizedDims(it.info.width, it.info.height, s.resize);
+      const bytes = r && r.b ? (it.size * r.a) / r.b : px ? (d.w * d.h * pxBytes) / px : it.size;
+      result[it.id] = { bytes: Math.round(bytes), approx: true };
+    }
+  }
+  return result;
+}
+
+function capabilities(category, target, ids, settings) {
+  const list = (ids || []).map((id) => items.get(id)).filter(Boolean);
+  const kind = av.outputKind(category, target);
+  if (kind === 'image') return img.capabilities(target, settings.image);
+  return av.capabilities(category, target, list);
+}
+
+// ---------- Conversão ----------
+
+const batches = new Map(); // chave da janela -> AbortController
+const reservedGlobal = new Set(); // nomes em uso por qualquer janela convertendo agora
+
+function outputPathFor(it, target, dest, reserved) {
+  const dir = dest && dest.mode === 'folder' && dest.folder ? dest.folder : path.dirname(it.path);
+  const base = path.basename(it.path, path.extname(it.path));
+  let candidate = path.join(dir, `${base}.${target}`);
+  let n = 1;
+  const taken = (p) => fs.existsSync(p) || reserved.has(p.toLowerCase()) || reservedGlobal.has(p.toLowerCase()) || p.toLowerCase() === it.path.toLowerCase();
+  while (taken(candidate)) candidate = path.join(dir, `${base} (${n++}).${target}`);
+  reserved.add(candidate.toLowerCase());
+  reservedGlobal.add(candidate.toLowerCase());
+  return candidate;
+}
+
+// jobs: [{id, target}], dest: {mode:'same'|'folder', folder}
+async function convertAll(jobs, settings, dest, emit, key = 'default') {
+  if (batches.has(key)) throw new Error('Essa janela já está convertendo.');
+  const controller = new AbortController();
+  batches.set(key, controller);
+  const reserved = new Set();
+  const started = Date.now();
+  if (dest && dest.mode === 'folder' && dest.folder) fs.mkdirSync(dest.folder, { recursive: true });
+
+  const prepared = jobs.map((j) => {
+    const it = items.get(j.id);
+    if (!it || !it.ok) return null;
+    const kind = av.outputKind(it.category, j.target);
+    return { it, target: j.target, kind, out: outputPathFor(it, j.target, dest, reserved) };
+  }).filter(Boolean);
+
+  const summary = { done: 0, failed: 0, cancelled: 0, inBytes: 0, outBytes: 0, folders: new Set() };
+
+  const runOne = async (job) => {
+    const { it, target, kind, out } = job;
+    if (controller.signal.aborted) { summary.cancelled++; emit({ id: it.id, status: 'cancelled' }); return; }
+    emit({ id: it.id, status: 'running', progress: 0, outPath: out });
+    try {
+      if (kind === 'image') {
+        await img.convertImage(it.path, it.ext, it.info, target, settings.image, out);
+        emit({ id: it.id, status: 'running', progress: 1 });
+      } else {
+        const avIt = await asAvItem(it);
+        let last = 0;
+        await av.convert(avIt, target, settings, hw, out, {
+          signal: controller.signal,
+          onProgress: (p) => { if (p - last >= 0.01 || p === 1) { last = p; emit({ id: it.id, status: 'running', progress: p }); } },
+        });
+      }
+      const outSize = fs.statSync(out).size;
+      summary.done++; summary.inBytes += it.size; summary.outBytes += outSize; summary.folders.add(path.dirname(out));
+      emit({ id: it.id, status: 'done', progress: 1, outPath: out, outSize });
+    } catch (e) {
+      try { fs.unlinkSync(out); } catch {}
+      if (e.cancelled || controller.signal.aborted) { summary.cancelled++; emit({ id: it.id, status: 'cancelled' }); }
+      else { summary.failed++; emit({ id: it.id, status: 'error', error: friendlyError(e) }); }
+    }
+  };
+
+  // Duas pistas: vídeo um por vez (já usa todos os núcleos ou a GPU), imagem e áudio três por vez.
+  const heavy = prepared.filter((j) => j.kind === 'video');
+  const light = prepared.filter((j) => j.kind !== 'video');
+  try {
+    await Promise.all([pool(heavy, 1, runOne), pool(light, 3, runOne)]);
+  } finally {
+    batches.delete(key);
+    for (const p of reserved) reservedGlobal.delete(p);
+  }
+  return {
+    done: summary.done, failed: summary.failed, cancelled: summary.cancelled,
+    inBytes: summary.inBytes, outBytes: summary.outBytes, folders: [...summary.folders],
+    seconds: (Date.now() - started) / 1000,
+  };
+}
+
+function cancel(key = 'default') { const c = batches.get(key); if (c) c.abort(); }
+function isBusy(key = 'default') { return batches.has(key); }
+
+module.exports = { setHardware, addPaths, remove, thumb, estimate, capabilities, convertAll, cancel, isBusy, expandPaths, items };

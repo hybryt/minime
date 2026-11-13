@@ -1,0 +1,81 @@
+{
+  "name": "minime",
+  "productName": "MINIME",
+  "version": "1.0.0",
+  "description": "Converte e encolhe imagens, vídeos e áudios no Windows. Criado por Alan Moreira.",
+  "author": {
+    "name": "Alan Moreira",
+    "url": "https://alanmore.com.br"
+  },
+  "homepage": "https://alanmore.com.br",
+  "license": "MIT",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
+    "icon": "node scripts/make-icon.mjs",
+    "nsis": "node scripts/gen-nsis.mjs",
+    "test:engine": "node scripts/test-engine.mjs",
+    "prebuild": "node scripts/make-icon.mjs && node scripts/gen-nsis.mjs",
+    "build": "electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "br.com.alanmore.minime",
+    "productName": "MINIME",
+    "copyright": "Criado por Alan Moreira (alanmore.com.br)",
+    "compression": "maximum",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/sharp/**",
+      "**/node_modules/@img/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "executableName": "MINIME"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MINIME",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerLanguages": [
+        "pt_BR"
+      ],
+      "language": "1046",
+      "include": "build/installer.nsh",
+      "artifactName": "MINIME-Setup-${version}.${ext}",
+      "uninstallDisplayName": "MINIME"
+    }
+  }
+}

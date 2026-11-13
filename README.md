@@ -51,11 +51,11 @@ Na primeira abertura o MINIME testa os encoders de vídeo da máquina (NVIDIA NV
 
 ## Instalação
 
-1. Rode `MINIME-Setup-1.0.0.exe`. Não pede administrador (instala só pro seu usuário).
+1. Rode `MINIME-Setup-1.1.0.exe`. Não pede administrador (instala só pro seu usuário).
 2. O Windows pode mostrar "O Windows protegeu o computador", porque o instalador não tem assinatura digital paga. Clique em **Mais informações** e **Executar assim mesmo**.
 3. Pronto: atalho na área de trabalho, no menu Iniciar e o item **Converter com MINIME** no botão direito.
 
-> No Windows 11 o item aparece em **Mostrar mais opções** (ou com Shift + F10), junto dos menus clássicos. Dá pra ligar e desligar o menu pelo ícone de ajustes, no canto superior direito do app.
+> No Windows 11 o item aparece em **Mostrar mais opções** (ou com Shift + F10), junto dos menus clássicos. Dá pra ligar e desligar o menu pelo ícone de ajustes, na barra de cima do app.
 
 Pra desinstalar: Configurações ▶ Aplicativos ▶ MINIME ▶ Desinstalar. O menu do botão direito sai junto.
 
@@ -104,7 +104,7 @@ src/
 │       ├── ffmpeg.js    execução, progresso, ffprobe, miniaturas
 │       ├── hardware.js  detecção e teste dos encoders de GPU
 │       └── jobs.js      lista, estimativa em lote, fila de conversão, nomes sem sobrescrever
-└── renderer/            interface (HTML, CSS e JS puros)
+└── renderer/            interface Liquid Glass (HTML, CSS e JS puros)
 scripts/
 ├── fetch-ffmpeg.mjs     baixa o FFmpeg
 ├── make-icon.mjs        gera o ícone
@@ -114,25 +114,37 @@ scripts/
 
 O arquivo original nunca é sobrescrito: se `foto.webp` já existe, sai `foto (1).webp`.
 
-## Paleta
+## Visual
 
-Inspirada nas cores de processo da gráfica (CMYK): cada cor marca um tipo de arquivo.
+Linguagem inspirada no Liquid Glass da Apple (macOS Tahoe e iOS 26), adaptada pro Windows 11.
 
-| Nome | Claro | Escuro | Uso |
-|---|---|---|---|
-| Papel | `#F3F3F1` | `#19191C` | fundo |
-| Folha | `#FFFFFF` | `#222226` | painéis |
-| Tinta | `#1B1B1F` | `#F2F2F0` | texto e botão principal |
-| Amarelo | `#FFCC00` | `#FFD21F` | imagem |
-| Magenta | `#E6007E` | `#FF2E97` | vídeo |
-| Ciano | `#009FE3` | `#2DB7F5` | áudio e foco |
+```
+🔮 Duas camadas
+├── Conteúdo ..... lista de arquivos e papel de parede suave (com grão)
+└── Vidro ........ barra de cima, painel de ajustes, barra de ação, menus e avisos
+     └── a lista rola por baixo do vidro, e um filtro SVG entorta e separa as cores
+         do que passa atrás (mesma técnica do GlassSurface do React Bits)
+```
 
-Tipografia: Bricolage Grotesque (logo e números) e Segoe UI Variable (texto, nativa do Windows 11).
+| Papel | Claro | Escuro |
+|---|---|---|
+| Fundo | `#EEF0F5` | `#0E1016` |
+| Texto | `#1D1D1F` | `#F5F5F7` |
+| Destaque (botão Converter, seleção) | `#007AFF` | `#0A84FF` |
+| Imagem | `#FF9500` | `#FF9F0A` |
+| Vídeo | `#FF2D55` | `#FF375F` |
+| Áudio | `#AF52DE` | `#BF5AF2` |
+| Economia | `#34C759` | `#30D158` |
+
+- Aparência: **Sistema**, **Claro** ou **Escuro**, no ícone de ajustes da barra de cima. A troca tem transição suave e fica salva.
+- Tipografia: Geist (desenho próximo ao SF da Apple, licença livre), com números tabulares no medidor.
+- O medidor segue o estilo "Armazenamento" do iPhone: barra dividida por tipo de arquivo e o que sobra é a economia.
+- Respeita "Efeitos de transparência" desligado (vidro vira superfície sólida) e "Mostrar animações" desligado.
 
 ## Licenças
 
 - Código do MINIME: MIT (veja `LICENSE`).
 - FFmpeg: GPL v3, distribuído como binário separado em `resources/ffmpeg`. Código-fonte em [ffmpeg.org](https://ffmpeg.org) e [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds).
 - sharp (Apache 2.0) com libvips (LGPL 3.0).
-- Bricolage Grotesque: SIL Open Font License 1.1.
+- Geist: SIL Open Font License 1.1.
 - Electron: MIT.

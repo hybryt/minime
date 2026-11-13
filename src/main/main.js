@@ -70,10 +70,27 @@ let mainWin = null;
 const quickWins = new Map(); // webContents.id -> { win, target, createdAt, started }
 const pending = new Map(); // webContents.id -> dados de abertura
 
+// Cor de fundo da janela (aparece antes do HTML carregar) e dos botões nativos de fechar e minimizar.
 function palette() {
   return nativeTheme.shouldUseDarkColors
-    ? { bg: '#19191C', fg: '#F2F2F0' }
-    : { bg: '#F3F3F1', fg: '#1B1B1F' };
+    ? { bg: '#0E1016', fg: '#F5F5F7' }
+    : { bg: '#EEF0F5', fg: '#1D1D1F' };
+}
+
+// ---------- Preferências (tema Sistema, Claro ou Escuro) ----------
+
+const THEMES = ['system', 'light', 'dark'];
+const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
+function readPrefs() {
+  try { return JSON.parse(fs.readFileSync(prefsFile(), 'utf8')) || {}; } catch { return {}; }
+}
+function writePrefs(patch) {
+  const next = { ...readPrefs(), ...patch };
+  try { fs.mkdirSync(path.dirname(prefsFile()), { recursive: true }); fs.writeFileSync(prefsFile(), JSON.stringify(next, null, 2)); } catch {}
+  return next;
+}
+function applyTheme(theme) {
+  nativeTheme.themeSource = THEMES.includes(theme) ? theme : 'system';
 }
 
 function baseOptions(extra) {
@@ -83,7 +100,7 @@ function baseOptions(extra) {
     backgroundColor: c.bg,
     icon: fs.existsSync(ICON) ? ICON : undefined,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: c.bg, symbolColor: c.fg, height: 44 },
+    titleBarOverlay: { color: '#00000000', symbolColor: c.fg, height: 44 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -131,7 +148,7 @@ function createMainWindow(files = []) {
     if (files.length) mainWin.webContents.send('launch:add', { files });
     return mainWin;
   }
-  mainWin = new BrowserWindow(baseOptions({ width: 1180, height: 760, minWidth: 900, minHeight: 600, title: 'MINIME' }));
+  mainWin = new BrowserWindow(baseOptions({ width: 1220, height: 790, minWidth: 960, minHeight: 640, title: 'MINIME' }));
   pending.set(mainWin.webContents.id, { mode: 'main', target: null, files });
   harden(mainWin);
   mainWin.on('closed', () => { mainWin = null; });
@@ -173,13 +190,15 @@ function handleLaunch(l) {
 
 function start() {
   Menu.setApplicationMenu(null);
-  if (!app.isPackaged && process.env.MINIME_THEME) nativeTheme.themeSource = process.env.MINIME_THEME;
+  applyTheme(readPrefs().theme);
+  if (process.env.MINIME_THEME) nativeTheme.themeSource = process.env.MINIME_THEME;
   getHardware();
   handleLaunch(launch.mode ? launch : { mode: 'open', files: launch.files });
   nativeTheme.on('updated', () => {
     const c = palette();
     for (const w of BrowserWindow.getAllWindows()) {
-      try { w.setTitleBarOverlay({ color: c.bg, symbolColor: c.fg }); w.setBackgroundColor(c.bg); } catch {}
+      try { w.setTitleBarOverlay({ color: '#00000000', symbolColor: c.fg }); w.setBackgroundColor(c.bg); } catch {}
+      if (!w.isDestroyed()) w.webContents.send('theme:changed', { theme: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors });
     }
   });
 }
@@ -245,6 +264,14 @@ ipcMain.handle('dialog:folder', async (e, current) => {
 ipcMain.handle('shell:showItem', (_e, p) => { if (p && fs.existsSync(p)) shell.showItemInFolder(p); });
 ipcMain.handle('shell:openFolder', (_e, p) => { if (p && fs.existsSync(p)) shell.openPath(p); });
 ipcMain.handle('shell:site', () => shell.openExternal(SITE));
+
+ipcMain.handle('theme:get', () => ({ theme: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors }));
+ipcMain.handle('theme:set', (_e, theme) => {
+  if (!THEMES.includes(theme)) return { theme: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors };
+  writePrefs({ theme });
+  applyTheme(theme);
+  return { theme: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors };
+});
 
 ipcMain.handle('app:hardware', () => getHardware());
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged }));

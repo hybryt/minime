@@ -1,4 +1,4 @@
-/* MINIME: interface. Uma tela só, dois modos: janela completa (main) e janela rápida (quick, menu do botão direito). */
+/* MINIME: interface Liquid Glass. Dois modos: janela completa (main) e janela rápida (quick, do botão direito). */
 (() => {
   'use strict';
 
@@ -10,6 +10,7 @@
   const popover = document.getElementById('popover');
   const toastEl = document.getElementById('toast');
   const dropEl = document.getElementById('dropzone');
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- Formatação ----------
 
@@ -22,29 +23,37 @@
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
     let v = b, i = 0;
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-    const n = i === 0 || v >= 100 ? nf0.format(v) : nf1.format(v);
-    return `${n} ${u[i]}`;
+    return `${i === 0 || v >= 100 ? nf0.format(v) : nf1.format(v)} ${u[i]}`;
   }
   function delta(before, after) {
     if (!before || after === null || after === undefined) return null;
     const p = Math.round(((after - before) / before) * 100);
-    if (p === 0) return { text: 'igual', up: false };
-    return p < 0 ? { text: `−${Math.abs(p)}%`, up: false } : { text: `+${nf0.format(p)}%`, up: true };
+    if (p === 0) return { text: 'igual', cls: 'same' };
+    return p < 0 ? { text: `−${Math.abs(p)}%`, cls: 'down' } : { text: `+${nf0.format(p)}%`, cls: 'up' };
   }
   const plural = (n, one, many) => `${nf0.format(n)} ${n === 1 ? one : many}`;
 
-  // ---------- Ícones ----------
+  // ---------- Ícones (traço fino, pontas redondas) ----------
 
+  const svg = (d, vb = 20, sw = 1.7) => `<svg viewBox="0 0 ${vb} ${vb}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const I = {
-    chev: '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>',
-    plus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg>',
-    x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
-    gear: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 6h8M15 6h2M3 14h2M9 14h8"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></svg>',
-    film: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>',
-    wave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>',
-    photo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>',
-    folder: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>',
+    updown: svg('<path d="M4 6l4-3.5L12 6M4 10l4 3.5 4-3.5"/>', 16, 1.6),
+    plus: svg('<path d="M10 4v12M4 10h12"/>'),
+    trash: svg('<path d="M4.5 6h11M8 6V4.5h4V6M6 6l.7 9.5h6.6L14 6"/>'),
+    sliders: svg('<path d="M3.5 6.5h7M14.5 6.5h2M3.5 13.5h2M9.5 13.5h7"/><circle cx="12.5" cy="6.5" r="2"/><circle cx="7.5" cy="13.5" r="2"/>'),
+    x: svg('<path d="M5 5l10 10M15 5L5 15"/>', 20, 2),
+    check: svg('<path d="M4.5 10.5l3.5 3.5 7.5-8"/>', 20, 2.4),
+    bang: svg('<path d="M10 5v6M10 14.6v.1"/>', 20, 2.6),
+    folder: svg('<path d="M2.8 6A1.6 1.6 0 0 1 4.4 4.4h3.4l1.7 1.7h6.1A1.6 1.6 0 0 1 17.2 7.7v6.7a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6z"/>'),
+    photo: svg('<rect x="3" y="4" width="14" height="12" rx="2.5"/><circle cx="7.6" cy="8.4" r="1.4"/><path d="M3.5 14l4-3.6 3 2.6 2.4-2 3.6 3.2"/>'),
+    film: svg('<rect x="3" y="4.5" width="14" height="11" rx="2.5"/><path d="M8.6 7.8v4.4l3.8-2.2z" fill="currentColor" stroke="none"/>'),
+    wave: svg('<path d="M4 9v2M7 6.5v7M10 4v12M13 7.5v5M16 9v2"/>'),
+    system: svg('<circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" stroke="none"/>'),
+    sun: svg('<circle cx="10" cy="10" r="3.2"/><path d="M10 2.5v1.7M10 15.8v1.7M17.5 10h-1.7M4.2 10H2.5M15.3 4.7l-1.2 1.2M5.9 14.1l-1.2 1.2M15.3 15.3l-1.2-1.2M5.9 5.9L4.7 4.7"/>'),
+    moon: svg('<path d="M15.8 12.3A6.5 6.5 0 0 1 7.7 4.2a6.5 6.5 0 1 0 8.1 8.1z"/>'),
   };
+  const appIcon = '<img class="appicon" src="assets/icon.png" alt="">';
+  const wordmark = '<span class="wordmark" aria-label="minime"><span>m</span><span>i</span><span>n</span><span>i</span><span>m</span><span>e</span></span>';
 
   // ---------- Dados fixos ----------
 
@@ -53,7 +62,7 @@
   const CAT_PLURAL = { image: 'Imagens', video: 'Vídeos', audio: 'Áudios' };
   const FORMAT_LIST = {
     image: 'JPG PNG WebP AVIF TIFF GIF BMP ICO SVG',
-    video: 'MP4 MKV MOV AVI WebM WMV FLV MPG TS 3GP',
+    video: 'MP4 MKV MOV AVI WebM WMV FLV MPG 3GP',
     audio: 'MP3 WAV M4A AAC FLAC OGG Opus WMA AIFF',
   };
 
@@ -75,13 +84,14 @@
       { v: 'small', label: 'Menor', help: 'Pra WhatsApp e e-mail: até 1080p e bitrate baixo.', apply: (s) => ({ ...s, quality: 35, resolution: s.resolution === 'original' ? 1080 : s.resolution }) },
     ],
   };
-  const CUSTOM_HELP = 'Ajuste manual: o tamanho final acompanha o controle de qualidade.';
+  const CUSTOM_HELP = 'Ajuste manual: o tamanho final acompanha a régua de qualidade.';
 
   const RESIZE = [['original', 'Original'], [3840, '3840 px (4K)'], [2560, '2560 px'], [1920, '1920 px (Full HD)'], [1280, '1280 px'], [800, '800 px']];
   const RESOLUTION = [['original', 'Original'], [2160, '4K (2160p)'], [1440, '1440p'], [1080, '1080p (Full HD)'], [720, '720p'], [480, '480p']];
   const ENGINE = [['auto', 'Automático', 'Usa a placa de vídeo quando ela der conta do formato.'], ['gpu', 'Placa de vídeo', 'Mais rápido.'], ['cpu', 'Processador', 'Mais lento, comprime um pouco melhor.']];
   const CODEC = [['h264', 'H.264'], ['h265', 'H.265']];
-  const BG = [['wave', 'Onda sonora'], ['cover', 'Capa'], ['black', 'Preto']];
+  const BG = [['wave', 'Onda'], ['cover', 'Capa'], ['black', 'Preto']];
+  const THEMES = [['system', 'Sistema', I.system], ['light', 'Claro', I.sun], ['dark', 'Escuro', I.moon]];
 
   // ---------- Estado ----------
 
@@ -110,6 +120,7 @@
     loading: 0,
     menuOn: null,
     version: '',
+    theme: 'system',
   };
   const saveSettings = () => store.save('minime.settings.v1', state.settings);
   const saveDest = () => store.save('minime.dest.v1', state.dest);
@@ -124,14 +135,9 @@
     if (it.category === 'audio') return 'audio';
     return it.category;
   }
-  function kindsPresent() {
-    const s = new Set(okItems().map(kindOf));
-    return ['image', 'video', 'audio'].filter((k) => s.has(k));
-  }
-  function catsPresent() {
-    const s = new Set(okItems().map((i) => i.category));
-    return ['image', 'video', 'audio'].filter((k) => s.has(k));
-  }
+  const order = (set) => ['image', 'video', 'audio'].filter((k) => set.has(k));
+  const kindsPresent = () => order(new Set(okItems().map(kindOf)));
+  const catsPresent = () => order(new Set(okItems().map((i) => i.category)));
   const targetLabel = (it, t = it.target) => (it.targets.find((x) => x.id === t) || { label: String(t).toUpperCase() }).label;
 
   function pickTarget(it) {
@@ -145,12 +151,90 @@
     return it.defaultTarget;
   }
 
+  // ---------- Vidro líquido: lente que entorta o que passa por trás ----------
+  // Filtro SVG com mapa de deslocamento do tamanho de cada peça (técnica do GlassSurface do React Bits).
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const lenses = new Map(); // chave -> { feImage, maps:[], size }
+  let lensDefs = null;
+  function lensFilter(key) {
+    if (lenses.has(key)) return lenses.get(key);
+    if (!lensDefs) {
+      lensDefs = document.createElementNS(NS, 'svg');
+      lensDefs.setAttribute('class', 'lens-defs');
+      lensDefs.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(lensDefs);
+    }
+    const f = document.createElementNS(NS, 'filter');
+    f.id = `lens-${key}`;
+    f.setAttribute('color-interpolation-filters', 'sRGB');
+    for (const [a, v] of [['x', '0%'], ['y', '0%'], ['width', '100%'], ['height', '100%']]) f.setAttribute(a, v);
+    f.innerHTML = `<feImage x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="map"/>
+      ${['r', 'g', 'b'].map((c, i) => `<feDisplacementMap in="SourceGraphic" in2="map" xChannelSelector="R" yChannelSelector="B" result="d${c}"/>
+        <feColorMatrix in="d${c}" type="matrix" values="${[0, 1, 2].map((r) => [0, 1, 2, 3, 4].map((col) => (col === r && r === i ? 1 : 0)).join(' ')).join(' ')} 0 0 0 1 0" result="${c}"/>`).join('')}
+      <feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b" mode="screen" result="rgb"/>
+      <feGaussianBlur in="rgb" stdDeviation="0.6"/>`;
+    lensDefs.appendChild(f);
+    const entry = { feImage: f.querySelector('feImage'), maps: [...f.querySelectorAll('feDisplacementMap')], size: '' };
+    lenses.set(key, entry);
+    return entry;
+  }
+  function lensMap(w, h, r) {
+    const e = Math.min(w, h) * 0.035;
+    const s = `<svg xmlns="${NS}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs>
+      <linearGradient id="r" x1="100%" y1="0%" x2="0%" y2="0%"><stop offset="0%" stop-color="#0000"/><stop offset="100%" stop-color="red"/></linearGradient>
+      <linearGradient id="b" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#0000"/><stop offset="100%" stop-color="blue"/></linearGradient>
+      <filter id="s"><feGaussianBlur stdDeviation="${Math.max(6, Math.min(14, Math.min(w, h) * 0.12))}"/></filter></defs>
+      <rect width="${w}" height="${h}" fill="black"/><rect width="${w}" height="${h}" rx="${r}" fill="url(#r)"/>
+      <rect width="${w}" height="${h}" rx="${r}" fill="url(#b)" style="mix-blend-mode:difference"/>
+      <rect x="${e}" y="${e}" width="${w - 2 * e}" height="${h - 2 * e}" rx="${Math.max(0, r - e)}" fill="hsl(0 0% 50% / .93)" filter="url(#s)"/></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(s)}`;
+  }
+  function applyLens(el) {
+    const key = el.dataset.lens;
+    const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
+    if (!w || !h) return;
+    const L = lensFilter(key);
+    const r = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, h / 2, w / 2);
+    const size = `${w}x${h}x${r}`;
+    if (L.size !== size) {
+      L.size = size;
+      L.feImage.setAttribute('href', lensMap(w, h, r));
+      const base = -Math.max(26, Math.min(72, h * 0.95));
+      L.maps.forEach((m, i) => m.setAttribute('scale', String(base + i * 8)));
+    }
+    el.style.setProperty('--lens', `url(#lens-${key})`);
+    el.classList.add('lensed');
+  }
+  const lensRO = new ResizeObserver((entries) => entries.forEach((e) => applyLens(e.target)));
+  function refreshLenses(root = document) {
+    root.querySelectorAll('[data-lens]').forEach((el) => { applyLens(el); lensRO.observe(el); });
+  }
+
+  // ---------- Controle segmentado: a "gota" desliza de uma opção pra outra ----------
+
+  const segFrom = new Map(); // caminho -> índice antigo
+  function segIndex(el) { return Number(el.style.getPropertyValue('--i')) || 0; }
+  function flushSegs() {
+    for (const [path, from] of segFrom) {
+      const el = document.querySelector(`[data-seg="${path}"]`);
+      if (!el) continue;
+      const to = segIndex(el);
+      segFrom.delete(path);
+      if (from === to || reduceMotion() || from < 0 || el.classList.contains('none')) continue;
+      el.animate([{ transform: `translateX(${from * 100}%)` }, { transform: `translateX(${to * 100}%)` }],
+        { duration: 360, easing: 'cubic-bezier(.32,.72,0,1)', pseudoElement: '::before' });
+    }
+  }
+
   // ---------- Toast ----------
 
   let toastTimer = null;
   function toast(msg, ms = 3400) {
     toastEl.textContent = msg;
     toastEl.hidden = false;
+    toastEl.dataset.lens = 'toast';
+    applyLens(toastEl);
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
   }
@@ -190,8 +274,11 @@
       while (i < list.length) {
         const it = list[i++];
         try { it.thumb = (await api.thumb(it.id)) || null; } catch { it.thumb = null; }
-        const el = document.querySelector(`[data-id="${it.id}"] .thumb, .q-file .thumb[data-tid="${it.id}"]`);
-        if (el && it.thumb) { el.insertAdjacentHTML('afterbegin', `<img src="${it.thumb}" alt="">`); el.querySelector('svg')?.remove(); }
+        if (!it.thumb) continue;
+        for (const el of document.querySelectorAll(`.thumb[data-tid="${it.id}"]`)) {
+          el.classList.remove('audio-art', 'video-art');
+          el.innerHTML = `<img src="${it.thumb}" alt="">`;
+        }
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
@@ -259,128 +346,147 @@
   }
 
   function totals() {
-    let before = 0, after = 0, approx = false, missing = false;
+    const t = { before: 0, after: 0, approx: false, byKind: { image: 0, video: 0, audio: 0 } };
     for (const it of okItems()) {
-      before += it.size;
-      if (it.status === 'done' && it.outSize) after += it.outSize;
-      else if (it.est && !it.est.error) { after += it.est.bytes; approx = approx || !!it.est.approx; }
-      else missing = true;
+      t.before += it.size;
+      let b = null;
+      if (it.status === 'done' && it.outSize) b = it.outSize;
+      else if (it.est && !it.est.error) { b = it.est.bytes; t.approx = t.approx || !!it.est.approx; }
+      if (b !== null) { t.after += b; t.byKind[kindOf(it)] += b; }
     }
-    return { before, after, approx, missing };
+    return t;
   }
 
-  // ---------- Render principal ----------
+  // ---------- Render ----------
 
   function render() {
     closeMenu();
-    const scroll = document.getElementById('list')?.scrollTop || 0;
-    if (MODE === 'quick') renderQuick();
-    else renderMain();
-    const list = document.getElementById('list');
-    if (list) list.scrollTop = scroll;
+    const scroll = document.getElementById('scroller')?.scrollTop || 0;
+    if (MODE === 'quick') renderQuick(); else renderMain();
+    const sc = document.getElementById('scroller');
+    if (sc) sc.scrollTop = scroll;
+    refreshLenses();
+    flushSegs();
   }
 
-  function titlebar() {
-    return `<header class="titlebar">
-      <span class="wordmark" aria-label="minime"><span>m</span><span>i</span><span>n</span><span>i</span><span>m</span><span>e</span></span>
-      <span class="spacer"></span>
-      <button class="icon-btn" data-act="about" title="Sobre e ajustes do MINIME" aria-label="Sobre e ajustes">${I.gear}</button>
-    </header>`;
+  function toolbar() {
+    const busy = state.phase === 'converting';
+    const has = state.items.length > 0;
+    const files = MODE === 'main' ? `<span class="sep"></span>
+      <button class="tb-btn" data-act="add" ${busy ? 'disabled' : ''} title="Adicionar arquivos">${I.plus}Adicionar</button>
+      ${has ? `<button class="tb-btn icon" data-act="clear" ${busy ? 'disabled' : ''} title="Limpar a lista" aria-label="Limpar a lista">${I.trash}</button>` : ''}` : '';
+    return `<div class="dragbar"></div>
+      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}${files}
+        <span class="sep"></span>
+        <button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button>
+      </nav>`;
+  }
+
+  function credit(cls = 'credit') {
+    return `<span class="${cls}">Criado por Alan Moreira. <button data-act="site" title="Abrir alanmore.com.br">alanmore.com.br</button></span>`;
   }
 
   function renderMain() {
     const has = state.items.length > 0;
-    app.innerHTML = `${titlebar()}
-      <main class="workspace ${has ? '' : 'empty'}">${has ? filesPane() + panel() : emptyState()}</main>
-      ${has ? footer() : ''}`;
-    if (has) { renderMeter(true); updateOverall(); }
-  }
-
-  function credit() {
-    return `<span class="credit">Criado por Alan Moreira. <button data-act="site" title="Abrir alanmore.com.br">alanmore.com.br</button></span>`;
+    if (!has) {
+      app.innerHTML = `<div class="shell empty"><section class="stage">${toolbar()}${emptyState()}</section></div>`;
+      return;
+    }
+    app.innerHTML = `<div class="shell">
+      <section class="stage">
+        <div class="scroller" id="scroller">
+          <header class="hero"><h1>Arquivos<span class="count num">${nf0.format(state.items.length)}</span></h1><div class="bulk">${bulk()}</div></header>
+          <div class="plate" id="list">${state.items.map(rowHtml).join('')}</div>
+        </div>
+        ${toolbar()}
+        <footer class="actionbar glass" data-lens="actionbar" id="actionbar">${actionbar()}</footer>
+      </section>
+      <aside class="inspector glass" aria-label="Ajustes da conversão">
+        <div class="inspector-head" id="tabs">${tabsHtml()}</div>
+        <div class="settings" id="settings">${state.tab ? settingsFor(state.tab) : ''}</div>
+        <section class="meter group" id="meter"></section>
+        <div class="credit-line">${credit('credit')}</div>
+      </aside>
+    </div>`;
+    renderMeter(true);
+    updateOverall();
   }
 
   function emptyState() {
-    return `<section class="empty-state">
-      <div class="drop-target">
-        <span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>
-        <h1 class="empty-title">Solte aqui suas imagens, vídeos e áudios.</h1>
-        <p class="empty-sub">Um arquivo, vários ou uma pasta inteira. Você escolhe o formato de cada um e vê o tamanho final antes de converter.</p>
-        <div class="empty-actions">
-          <button class="btn primary big" data-act="add">${I.plus}Escolher arquivos</button>
-        </div>
-        <div class="formats">
-          ${['image', 'video', 'audio'].map((k) => `<div class="formats-row"><b><span class="swatch ${k}"></span>${KIND[k]}</b><span>${FORMAT_LIST[k]}</span></div>`).join('')}
-        </div>
-        <p class="empty-sub" style="margin:22px 0 0;font-size:12.5px">${credit()}</p>
+    return `<div class="empty-wrap"><section class="drop-card glass">
+      <div class="fan" aria-hidden="true">
+        <span class="app-tile t-image">${I.photo}</span><span class="app-tile t-video">${I.film}</span><span class="app-tile t-audio">${I.wave}</span>
       </div>
-    </section>`;
-  }
-
-  function filesPane() {
-    const n = state.items.length;
-    return `<section class="files">
-      <div class="files-head">
-        <h2>Arquivos<span class="count">${nf0.format(n)}</span></h2>
-        <span class="spacer"></span>
-        <button class="btn ghost small" data-act="add" ${state.phase === 'converting' ? 'disabled' : ''}>${I.plus}Adicionar</button>
-        <button class="btn ghost small" data-act="clear" ${state.phase === 'converting' ? 'disabled' : ''}>Limpar lista</button>
-      </div>
-      <div class="bulk">${bulk()}</div>
-      <div class="list" id="list">${state.items.map(rowHtml).join('')}</div>
-    </section>`;
+      <h1>Solte aqui suas imagens, vídeos e áudios</h1>
+      <p class="sub">Um arquivo, vários ou uma pasta inteira. Você escolhe o formato de cada um e vê o tamanho final antes de converter.</p>
+      <button class="btn primary" data-act="add">${I.plus}Escolher arquivos</button>
+      <div class="formats">${['image', 'video', 'audio'].map((k) => `<div><b><span class="dot ${k}"></span>${KIND[k]}</b><span>${FORMAT_LIST[k]}</span></div>`).join('')}</div>
+      ${credit()}
+    </section></div>`;
   }
 
   function bulk() {
     const cats = catsPresent();
-    if (!cats.length) return '<span>Nenhum arquivo válido na lista.</span>';
-    return `<span>Converter todos:</span>${cats.map((c) => {
+    if (!cats.length) return '';
+    const busy = state.phase === 'converting';
+    return cats.map((c) => {
       const its = okItems().filter((i) => i.category === c);
       const ts = new Set(its.map((i) => i.target));
       const label = ts.size === 1 ? targetLabel(its[0]) : 'Vários';
-      return `<span class="bulk-item"><span class="swatch ${c}"></span>${CAT_PLURAL[c]}
-        <button class="select inline" data-menu="bulk" data-cat="${c}" ${state.phase === 'converting' ? 'disabled' : ''}><span class="lbl">${esc(label)}</span>${I.chev}</button></span>`;
-    }).join('')}`;
+      return `<span class="bulk-item"><span class="dot ${c}"></span>${CAT_PLURAL[c]}
+        <button class="popup inline" data-menu="bulk" data-cat="${c}" ${busy ? 'disabled' : ''} aria-label="Converter todos os ${CAT_PLURAL[c].toLowerCase()} para"><span class="lbl">${esc(label)}</span>${I.updown.replace('aria-hidden', 'class="chev" aria-hidden')}</button></span>`;
+    }).join('');
   }
 
-  function thumbHtml(it, attrs = '') {
+  function thumbHtml(it) {
+    const art = it.category === 'audio' ? 'audio-art' : it.category === 'video' ? 'video-art' : 'checker';
     const icon = it.category === 'video' ? I.film : it.category === 'audio' ? I.wave : I.photo;
-    const checker = it.category === 'image' ? 'checker' : '';
-    const inner = it.thumb ? `<img src="${it.thumb}" alt="">` : icon;
-    return `<div class="thumb ${checker}" ${attrs}>${inner}<span class="tag ${it.category}">${esc(it.ext.toUpperCase())}</span></div>`;
+    return `<div class="thumb ${it.thumb ? '' : art}" data-tid="${it.id}">${it.thumb ? `<img src="${it.thumb}" alt="">` : icon}</div>`;
   }
 
-  function rowState(it) {
-    if (!it.ok) return `<small class="err">${esc(it.error)}</small>`;
-    if (it.status === 'running') return `<small class="state">Convertendo… ${Math.round((it.progress || 0) * 100)}%</small>`;
-    if (it.status === 'queued') return '<small class="state">Na fila</small>';
-    if (it.status === 'done') return `<small class="state">Pronto. <button class="show-btn" data-act="show" data-id="${it.id}">Mostrar na pasta</button></small>`;
-    if (it.status === 'error') return `<small class="err">${esc(it.convError || 'Falhou.')}</small>`;
-    if (it.status === 'cancelled') return '<small class="state">Cancelado</small>';
-    if (it.est && it.est.error) return `<small class="err">${esc(it.est.error)}</small>`;
-    return `<small>${esc(it.meta)}</small>`;
+  function metaHtml(it) {
+    const badge = `<span class="badge ${it.category}">${esc(it.ext.toUpperCase())}</span>`;
+    if (!it.ok) return `<div class="meta err">${esc(it.error)}</div>`;
+    if (it.status === 'running') return `<div class="meta">${badge}<span>Convertendo… ${Math.round((it.progress || 0) * 100)}%</span></div>`;
+    if (it.status === 'queued') return `<div class="meta">${badge}<span>Na fila</span></div>`;
+    if (it.status === 'done') return `<div class="meta">${badge}<span>Pronto. <button class="link-btn" data-act="show" data-id="${it.id}">Mostrar na pasta</button></span></div>`;
+    if (it.status === 'error') return `<div class="meta err">${esc(it.convError || 'Falhou.')}</div>`;
+    if (it.status === 'cancelled') return `<div class="meta">${badge}<span>Cancelado</span></div>`;
+    if (it.est && it.est.error) return `<div class="meta err">${esc(it.est.error)}</div>`;
+    return `<div class="meta">${badge}<span>${esc(it.meta)}</span></div>`;
   }
 
   function sizesHtml(it) {
-    if (!it.ok) return `<div>${fmtBytes(it.size)}</div>`;
+    if (!it.ok) return `<div class="before">${fmtBytes(it.size)}</div>`;
     let after, approx = false;
     if (it.status === 'done') after = it.outSize;
     else if (it.est && !it.est.error) { after = it.est.bytes; approx = it.est.approx; }
-    if (after === undefined || after === null) return `<div>${fmtBytes(it.size)}</div><div class="pending">calculando…</div>`;
+    if (after === undefined || after === null) return `<div class="before">${fmtBytes(it.size)}</div><div class="pending">calculando…</div>`;
     const d = delta(it.size, after);
-    return `<div>${fmtBytes(it.size)}</div><div><span class="after num">${approx ? '~' : ''}${fmtBytes(after)}</span> ${d ? `<span class="delta ${d.up ? 'up' : ''}">${d.text}</span>` : ''}</div>`;
+    return `<div class="before">${fmtBytes(it.size)}</div><div class="after-line"><span class="after num">${approx ? '~' : ''}${fmtBytes(after)}</span>${d ? `<span class="pill ${d.cls}">${d.text}</span>` : ''}</div>`;
+  }
+
+  function statusHtml(it) {
+    const busy = state.phase === 'converting';
+    if (it.status === 'queued' || it.status === 'running') {
+      const c = 2 * Math.PI * 9;
+      const p = it.status === 'running' ? it.progress || 0 : 0;
+      return `<svg class="ring" viewBox="0 0 22 22" role="progressbar" aria-valuenow="${Math.round(p * 100)}" aria-valuemin="0" aria-valuemax="100"><circle class="track" cx="11" cy="11" r="9"/><circle class="bar" cx="11" cy="11" r="9" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}"/></svg>`;
+    }
+    if (it.status === 'done') return `<button class="done-badge" data-act="show" data-id="${it.id}" title="Mostrar na pasta" aria-label="Mostrar ${esc(it.name)} na pasta">${I.check}</button>`;
+    if (it.status === 'error') return `<span class="done-badge err" title="${esc(it.convError || 'Falhou')}">${I.bang}</span>`;
+    if (it.status === 'cancelled') return `<span class="done-badge cancel" title="Cancelado">${I.x}</span>`;
+    return `<button class="x-btn" data-act="remove" data-id="${it.id}" title="Tirar da lista" aria-label="Tirar ${esc(it.name)} da lista" ${busy ? 'disabled' : ''}>${I.x}</button>`;
   }
 
   function rowHtml(it) {
-    const cls = [it.status === 'done' ? 'done' : '', it.status === 'error' || !it.ok ? 'failed' : ''].join(' ');
     const busy = state.phase === 'converting';
-    return `<div class="row ${cls}" data-id="${it.id}" data-kind="${it.ok ? kindOf(it) : ''}">
+    return `<div class="row ${it.status === 'done' ? 'done' : ''}" data-id="${it.id}" ${busy ? 'data-busy' : ''}>
       ${thumbHtml(it)}
-      <div class="name"><b title="${esc(it.path)}">${esc(it.name)}</b>${rowState(it)}</div>
+      <div class="name"><b title="${esc(it.path)}">${esc(it.name)}</b>${metaHtml(it)}</div>
       <div class="sizes num">${sizesHtml(it)}</div>
-      <div>${it.ok ? `<button class="select" data-menu="row" data-id="${it.id}" ${busy || it.status === 'done' ? 'disabled' : ''} aria-label="Formato de saída de ${esc(it.name)}"><span class="lbl">${esc(targetLabel(it))}</span>${I.chev}</button>` : ''}</div>
-      <button class="icon-btn" data-act="remove" data-id="${it.id}" title="Tirar da lista" aria-label="Tirar ${esc(it.name)} da lista" ${busy ? 'disabled' : ''}>${I.x}</button>
-      <div class="row-progress"><i style="width:${it.status === 'running' || it.status === 'done' ? Math.round((it.progress || 0) * 100) : 0}%"></i></div>
+      <div>${it.ok ? `<button class="popup" data-menu="row" data-id="${it.id}" ${busy || it.status === 'done' ? 'disabled' : ''} aria-label="Formato de saída de ${esc(it.name)}"><span class="lbl">${esc(targetLabel(it))}</span>${I.updown.replace('aria-hidden', 'class="chev" aria-hidden')}</button>` : ''}</div>
+      <div class="status">${statusHtml(it)}</div>
     </div>`;
   }
 
@@ -389,44 +495,45 @@
     const el = document.querySelector(`.row[data-id="${it.id}"]`);
     if (!el) return;
     el.classList.toggle('done', it.status === 'done');
-    el.classList.toggle('failed', it.status === 'error' || !it.ok);
-    el.querySelector('.name small')?.replaceWith(htmlEl(rowState(it)));
+    el.querySelector('.meta')?.replaceWith(htmlEl(metaHtml(it)));
     el.querySelector('.sizes').innerHTML = sizesHtml(it);
-    const bar = el.querySelector('.row-progress i');
-    if (bar) bar.style.width = `${it.status === 'running' || it.status === 'done' ? Math.round((it.progress || 0) * 100) : 0}%`;
+    const st = el.querySelector('.status');
+    const ring = st.querySelector('.ring .bar');
+    if (ring && it.status === 'running') {
+      const c = 2 * Math.PI * 9;
+      ring.setAttribute('stroke-dashoffset', String(c * (1 - (it.progress || 0))));
+    } else st.innerHTML = statusHtml(it);
   }
   function htmlEl(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 
-  // ---------- Painel de ajustes ----------
+  // ---------- Ajustes ----------
 
-  function panel() {
-    return `<aside class="panel">
-      <div class="tabs" role="tablist" id="tabs">${tabsHtml()}</div>
-      <div class="settings" id="settings">${state.tab ? settingsFor(state.tab) : ''}</div>
-      <section class="meter" id="meter"></section>
-    </aside>`;
+  function chev() { return I.updown.replace('aria-hidden', 'class="chev" aria-hidden'); }
+
+  function seg(path, options, current, extraClass = '') {
+    const idx = options.findIndex(([v]) => String(v) === String(current));
+    const cls = `seg ${extraClass} ${idx < 0 ? 'none' : ''}`;
+    return `<div class="${cls}" data-seg="${path}" role="group" style="--n:${options.length};--i:${Math.max(0, idx)}">${options.map(([v, label, disabled, title, icon]) =>
+      `<button type="button" data-v="${v}" aria-pressed="${String(v) === String(current)}" ${disabled ? 'disabled' : ''} ${title ? `title="${esc(title)}"` : ''}>${icon || ''}${esc(label)}</button>`).join('')}</div>`;
   }
 
-  function tabsHtml() {
-    return kindsPresent().map((k) => `<button class="tab" role="tab" data-tab="${k}" aria-selected="${state.tab === k}"><span class="swatch ${k}"></span>${KIND[k]}</button>`).join('');
+  function popupBtn(menu, label, disabled = false) {
+    return `<button class="popup" data-menu="${menu}" ${disabled ? 'disabled' : ''}><span class="lbl">${esc(label)}</span>${chev()}</button>`;
   }
 
-  function seg(path, options, current, extra = {}) {
-    return `<div class="seg" data-seg="${path}" role="group">${options.map(([v, label, disabled, title]) =>
-      `<button type="button" data-v="${v}" aria-pressed="${String(v) === String(current)}" ${disabled ? 'disabled' : ''} ${title ? `title="${esc(title)}"` : ''}>${esc(label)}</button>`).join('')}</div>`;
-  }
-
-  function selectBtn(menu, label, disabled = false) {
-    return `<button class="select" data-menu="${menu}" ${disabled ? 'disabled' : ''}><span class="lbl">${esc(label)}</span>${I.chev}</button>`;
-  }
-
-  function rangeField(path, value, label, disabled, note) {
-    return `<div class="field">
-      <label>${label}<span class="value" data-value="${path}">${valueText(path)}</span></label>
-      <input type="range" class="range" data-range="${path}" min="0" max="100" step="1" value="${value}" style="--pct:${value}%" ${disabled ? 'disabled' : ''} aria-label="${label}">
+  function rangeGroup(path, value, disabled, note) {
+    return `<div class="group">
+      <div class="g-title"><span>Qualidade</span><span class="value" data-value="${path}">${valueText(path)}</span></div>
+      <input type="range" class="range" data-range="${path}" min="0" max="100" step="1" value="${value}" style="--pct:${value}%" ${disabled ? 'disabled' : ''} aria-label="Qualidade">
       <div class="range-scale"><span>Menor arquivo</span><span>Mais qualidade</span></div>
       ${note ? `<p class="help note">${esc(note)}</p>` : ''}
     </div>`;
+  }
+
+  function tabsHtml() {
+    const kinds = kindsPresent();
+    if (!kinds.length) return '';
+    return seg('tab', kinds.map((k) => [k, KIND[k], false, '', `<span class="dot ${k}"></span>`]), state.tab, 'tabs');
   }
 
   function firstDetail(kind) {
@@ -440,7 +547,7 @@
     if (path === 'video.quality') {
       const d = firstDetail('video');
       if (!d) return `${s.video.quality}%`;
-      if (d.remux) return 'sem recodificar';
+      if (d.remux) return 'original';
       if (d.fps && d.colors) return `${d.fps} fps, ${d.colors} cores`;
       if (d.bitrate) return `${nf1.format(d.bitrate / 1e6)} Mbps`;
       return `${s.video.quality}%`;
@@ -464,10 +571,10 @@
     const vids = okItems().filter((i) => kindOf(i) === 'video' && i.status !== 'done');
     const cpuOnly = vids.length > 0 && vids.every((i) => ['webm', 'avi', 'gif'].includes(i.target));
     const enc = s.codec === 'h265' ? hw.hevc : hw.h264;
-    if (cpuOnly) return { on: false, text: `Processador (${hw.cpu}). WebM, AVI e GIF não usam a placa de vídeo.` };
+    if (cpuOnly) return { on: false, text: `Processador. WebM, AVI e GIF não usam a placa de vídeo.` };
     if (s.engine === 'cpu') return { on: false, text: `Processador: ${hw.cpu}` };
-    if (!enc) return { on: false, text: hw.gpuLabel ? `${hw.gpuLabel} não codifica ${s.codec === 'h265' ? 'H.265' : 'H.264'}. Usando o processador.` : `Nenhuma placa de vídeo compatível. Usando o processador (${hw.cpu}).` };
-    return { on: true, text: `Placa de vídeo: ${hw.gpuLabel}` };
+    if (!enc) return { on: false, text: hw.gpuLabel ? `${hw.gpuLabel} não codifica ${s.codec === 'h265' ? 'H.265' : 'H.264'}. Usando o processador.` : 'Nenhuma placa de vídeo compatível. Usando o processador.' };
+    return { on: true, text: `Usando a ${hw.gpuLabel}` };
   }
 
   function settingsFor(kind) {
@@ -476,173 +583,164 @@
     if (kind === 'image') {
       const o = OBJ.image.find((x) => x.v === s.image.objective);
       return `
-        <div class="field"><div class="label">Objetivo</div>
+        <div class="group"><div class="g-title"><span>Objetivo</span></div>
           ${seg('image.objective', OBJ.image.map((x) => [x.v, x.label]), s.image.objective)}
           <p class="help" data-help="image">${esc(o ? o.help : CUSTOM_HELP)}</p></div>
-        ${rangeField('image.quality', s.image.quality, 'Qualidade', !caps.slider, caps.note)}
-        <div class="field"><label>Tamanho máximo <span>lado maior</span></label>
-          ${selectBtn('image.resize', (RESIZE.find(([v]) => String(v) === String(s.image.resize)) || RESIZE[0])[1])}</div>
-        <label class="toggle"><b>Remover dados ocultos</b><small>EXIF, GPS e modelo da câmera</small>
-          <span class="switch"><input type="checkbox" data-check="image.stripMetadata" ${s.image.stripMetadata ? 'checked' : ''}><i></i></span></label>`;
+        ${rangeGroup('image.quality', s.image.quality, !caps.slider, caps.note)}
+        <div class="group rows">
+          <div class="g-row"><span class="lbl"><b>Tamanho máximo</b><small>Lado maior da imagem</small></span>${popupBtn('image.resize', (RESIZE.find(([v]) => String(v) === String(s.image.resize)) || RESIZE[0])[1])}</div>
+          <label class="g-row"><span class="lbl"><b>Remover dados ocultos</b><small>EXIF, GPS e modelo da câmera</small></span>
+            <span class="switch"><input type="checkbox" data-check="image.stripMetadata" ${s.image.stripMetadata ? 'checked' : ''} aria-label="Remover dados ocultos"><i></i></span></label>
+        </div>`;
     }
     if (kind === 'video') {
       const o = OBJ.video.find((x) => x.v === s.video.objective);
       const vids = okItems().filter((i) => kindOf(i) === 'video');
       const showCodec = vids.some((i) => ['mp4', 'mkv', 'mov'].includes(i.target));
       const copy = s.video.objective === 'copy' && caps.remux;
-      const eng = engineInfo();
       const notAllRemux = copy && !caps.remuxAll;
       const pureCopy = copy && caps.remuxAll && s.video.resolution === 'original';
+      const eng = engineInfo();
+      const helpText = o ? (o.v === 'copy' && !caps.remux ? 'Pra esse formato o vídeo precisa ser recodificado.' : o.help) : CUSTOM_HELP;
       return `
-        <div class="field"><div class="label">Objetivo</div>
-          ${seg('video.objective', OBJ.video.map((x) => [x.v, x.label, x.v === 'copy' && !caps.remux, x.v === 'copy' && !caps.remux ? 'Esse vídeo precisa ser recodificado pra esse formato.' : '']), s.video.objective === 'copy' && !caps.remux ? 'balanced-x' : s.video.objective)}
-          <p class="help" data-help="video">${esc(o ? (o.v === 'copy' && !caps.remux ? 'Pra esse formato o vídeo precisa ser recodificado.' : o.help) : CUSTOM_HELP)}${notAllRemux ? ' Alguns arquivos vão ser recodificados.' : ''}</p></div>
-        ${rangeField('video.quality', s.video.quality, 'Qualidade', pureCopy, pureCopy ? 'Sem recodificar, a qualidade fica idêntica à do original.' : null)}
-        <div class="field"><label>Resolução</label>
-          ${selectBtn('video.resolution', (RESOLUTION.find(([v]) => String(v) === String(s.video.resolution)) || RESOLUTION[0])[1])}
-          ${copy && s.video.resolution !== 'original' ? '<p class="help">Mudar a resolução obriga a recodificar o vídeo.</p>' : ''}</div>
-        ${showCodec && !pureCopy ? `<div class="field"><div class="label">Codec</div>${seg('video.codec', CODEC, s.video.codec)}
-          <p class="help">${s.video.codec === 'h265' ? 'Uns 35% menor que o H.264. Aparelho e programa antigo podem não abrir.' : 'Abre em qualquer aparelho, navegador e editor.'}</p></div>` : ''}
-        ${pureCopy ? '' : `<div class="field"><label>Motor de conversão</label>
-          ${selectBtn('video.engine', (ENGINE.find(([v]) => v === s.video.engine) || ENGINE[0])[1])}
-          <div class="engine-line"><span class="dot ${eng.on ? 'on' : ''}"></span><span>${esc(eng.text)}</span></div></div>`}`;
+        <div class="group"><div class="g-title"><span>Objetivo</span></div>
+          ${seg('video.objective', OBJ.video.map((x) => [x.v, x.label, x.v === 'copy' && !caps.remux, x.v === 'copy' && !caps.remux ? 'Esse vídeo precisa ser recodificado pra esse formato.' : '']), s.video.objective === 'copy' && !caps.remux ? '' : s.video.objective)}
+          <p class="help" data-help="video">${esc(helpText)}${notAllRemux ? ' Alguns arquivos vão ser recodificados.' : ''}</p></div>
+        ${rangeGroup('video.quality', s.video.quality, pureCopy, pureCopy ? 'Sem recodificar, a qualidade fica idêntica à do original.' : null)}
+        <div class="group rows">
+          <div class="g-row"><span class="lbl"><b>Resolução</b>${copy && s.video.resolution !== 'original' ? '<small>Mudar obriga a recodificar</small>' : '<small>Nunca aumenta</small>'}</span>${popupBtn('video.resolution', (RESOLUTION.find(([v]) => String(v) === String(s.video.resolution)) || RESOLUTION[0])[1])}</div>
+          ${showCodec && !pureCopy ? `<div class="g-row"><span class="lbl"><b>Codec</b><small>${s.video.codec === 'h265' ? 'Uns 35% menor, menos compatível' : 'Abre em qualquer aparelho'}</small></span>${seg('video.codec', CODEC, s.video.codec)}</div>` : ''}
+          ${pureCopy ? '' : `<div class="g-row"><span class="lbl"><b>Motor</b><small>CPU ou placa de vídeo</small></span>${popupBtn('video.engine', (ENGINE.find(([v]) => v === s.video.engine) || ENGINE[0])[1])}</div>`}
+        </div>
+        ${pureCopy ? '' : `<div class="engine"><span class="led ${eng.on ? 'on' : ''}"></span><span>${esc(eng.text)}</span></div>`}`;
     }
     if (kind === 'audio') {
       const auds = okItems().filter((i) => kindOf(i) === 'audio');
       const toVideo = auds.some((i) => i.category === 'audio' && i.target === 'mp4');
       const anyCover = auds.some((i) => i.hasCover);
       return `
-        ${rangeField('audio.quality', s.audio.quality, 'Qualidade', !caps.slider, caps.note)}
-        <p class="help" style="margin-top:-8px">Se o original for mais leve que o escolhido, o MINIME segura no bitrate dele: acima disso o arquivo só engorda.</p>
-        ${toVideo ? `<div class="field"><div class="label">Fundo do vídeo</div>
+        ${rangeGroup('audio.quality', s.audio.quality, !caps.slider, caps.note || 'Se o original for mais leve que o escolhido, o MINIME segura no bitrate dele: acima disso o arquivo só engorda.')}
+        ${toVideo ? `<div class="group"><div class="g-title"><span>Fundo do vídeo</span></div>
           ${seg('audio.background', BG.map(([v, l]) => [v, l, v === 'cover' && !anyCover, v === 'cover' && !anyCover ? 'Esse áudio não tem capa.' : '']), s.audio.background === 'cover' && !anyCover ? 'wave' : s.audio.background)}
-          <p class="help">Áudio em MP4 vira vídeo 1280 × 720 (capa em 1080 × 1080), pronto pra rede social.</p></div>` : ''}`;
+          <p class="help">Vira um vídeo 1280 × 720 (capa em 1080 × 1080), pronto pra rede social.</p></div>` : ''}`;
     }
     return '';
   }
 
   function renderSettings() {
     const host = document.getElementById('settings');
-    if (!host) return;
-    if (MODE === 'quick') {
-      const kinds = kindsPresent();
-      host.innerHTML = kinds.map((k) => (kinds.length > 1 ? `<div class="label" style="font-weight:700">${KIND[k]}</div>` : '') + settingsFor(k)).join('');
-      return;
+    if (host) {
+      if (MODE === 'quick') {
+        const kinds = kindsPresent();
+        host.innerHTML = kinds.map((k) => (kinds.length > 1 ? `<div class="g-title" style="padding:4px 4px 0">${KIND[k]}</div>` : '') + settingsFor(k)).join('');
+      } else {
+        const tabs = document.getElementById('tabs');
+        if (tabs) tabs.innerHTML = tabsHtml();
+        host.innerHTML = state.tab ? settingsFor(state.tab) : '';
+      }
     }
-    const tabs = document.getElementById('tabs');
-    if (tabs) tabs.innerHTML = tabsHtml();
-    host.innerHTML = state.tab ? settingsFor(state.tab) : '';
+    flushSegs();
   }
 
-  // ---------- Medidor ----------
+  // ---------- Medidor (estilo "Armazenamento") ----------
 
-  const shown = { before: 0, after: 0 };
+  const shown = { after: 0 };
   let tweenRaf = null;
   function renderMeter(fresh = false) {
     const el = document.getElementById('meter');
     if (!el) return;
     const t = totals();
-    const n = okItems().length;
     const isDone = state.phase === 'done';
     if (fresh || !el.dataset.ready) {
       el.dataset.ready = '1';
       el.innerHTML = `
-        <div class="meter-head"><span>${MODE === 'quick' ? 'Simulação' : plural(n, 'arquivo', 'arquivos')}</span><span data-m="kind"></span></div>
-        <div class="meter-line before"><span>Antes</span><b class="figure num" data-m="before"></b></div>
-        <div class="bar before"><i data-m="bbar"></i></div>
-        <div class="meter-line after"><span>${isDone ? 'Depois' : 'Depois'}</span><span><b class="figure num" data-m="after"></b><span class="delta" data-m="delta"></span></span></div>
-        <div class="bar after" data-m="abarwrap"><i data-m="abar"></i></div>
+        <div class="m-top"><b class="big num" data-m="after">–</b><span class="of num" data-m="of"></span><span class="pill" data-m="pill"></span></div>
+        <div class="storage" role="img" data-m="bar"><i class="s-image" data-m="image"></i><i class="s-video" data-m="video"></i><i class="s-audio" data-m="audio"></i></div>
+        <div class="legend" data-m="legend"></div>
         <div class="caption" data-m="caption"></div>`;
     }
     const q = (k) => el.querySelector(`[data-m="${k}"]`);
     el.classList.toggle('calculating', state.estimating && !isDone);
-    const head = el.querySelector('.meter-head span');
-    if (head && MODE !== 'quick') head.textContent = plural(n, 'arquivo', 'arquivos');
     const max = Math.max(t.before, t.after, 1);
-    q('bbar').style.width = `${(t.before / max) * 100}%`;
-    q('abar').style.width = `${t.after ? Math.max(1.5, (t.after / max) * 100) : 0}%`;
+    for (const k of ['image', 'video', 'audio']) q(k).style.flexBasis = `${(t.byKind[k] / max) * 100}%`;
     const d = delta(t.before, t.after);
-    q('abarwrap').classList.toggle('up', !!(d && d.up));
-    const dEl = q('delta');
-    dEl.textContent = d && t.after ? d.text : '';
-    dEl.className = `delta ${d && d.up ? 'up' : ''}`;
-    q('caption').textContent = isDone
-      ? 'Tamanho real dos arquivos convertidos.'
+    const pill = q('pill');
+    pill.className = `pill ${d && t.after ? d.cls : ''}`;
+    pill.textContent = d && t.after ? d.text : '';
+    pill.hidden = !(d && t.after);
+    q('of').textContent = `de ${fmtBytes(t.before)}`;
+    const saved = t.before - t.after;
+    const legend = ['image', 'video', 'audio'].filter((k) => t.byKind[k] > 0)
+      .map((k) => `<span><i class="dot ${k}"></i>${CAT_PLURAL[k]} <b class="num">${fmtBytes(t.byKind[k])}</b></span>`);
+    if (t.after && saved > 0) legend.push(`<span><i class="dot saved"></i>${isDone ? 'Economizado' : 'Economia'} <b class="num">${fmtBytes(saved)}</b></span>`);
+    q('legend').innerHTML = legend.join('');
+    q('bar').setAttribute('aria-label', `Tamanho final ${fmtBytes(t.after)} de ${fmtBytes(t.before)}`);
+    q('caption').textContent = isDone ? 'Tamanho real dos arquivos convertidos.'
       : !t.after ? 'Calculando o tamanho final…'
         : t.approx ? 'Estimativa pelo bitrate escolhido. O tamanho exato sai na conversão.'
           : 'Tamanho exato, calculado agora com as opções atuais.';
-    tween(q('before'), q('after'), t, t.approx && !isDone);
+    tween(q('after'), t.after, t.approx && !isDone);
   }
 
-  function tween(bEl, aEl, t, approx) {
+  function tween(el, target, approx) {
     cancelAnimationFrame(tweenRaf);
-    const from = { ...shown };
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!target) { el.textContent = '–'; shown.after = 0; return; }
+    const from = shown.after;
     const start = performance.now();
-    const dur = reduce ? 0 : 380;
+    const dur = reduceMotion() ? 0 : 420;
     const step = (now) => {
       const k = dur ? Math.min(1, (now - start) / dur) : 1;
-      const e = 1 - Math.pow(1 - k, 3);
-      shown.before = from.before + (t.before - from.before) * e;
-      shown.after = from.after + (t.after - from.after) * e;
-      bEl.textContent = fmtBytes(shown.before);
-      aEl.textContent = t.after ? `${approx ? '~' : ''}${fmtBytes(shown.after)}` : '–';
+      shown.after = from + (target - from) * (1 - Math.pow(1 - k, 3));
+      el.textContent = `${approx ? '~' : ''}${fmtBytes(shown.after)}`;
       if (k < 1) tweenRaf = requestAnimationFrame(step);
     };
     tweenRaf = requestAnimationFrame(step);
   }
 
-  // ---------- Rodapé ----------
+  // ---------- Barra de ação ----------
 
-  function destHtml() {
+  function destSeg() {
+    return seg('dest.mode', [['same', 'Mesma pasta'], ['folder', 'Outra pasta…']], state.dest.mode === 'folder' && state.dest.folder ? 'folder' : 'same');
+  }
+  function destChip() {
     const d = state.dest;
-    const chip = d.mode === 'folder' && d.folder
-      ? `<span class="path-chip" title="${esc(d.folder)}">${I.folder}<span>${esc(d.folder)}</span><button data-act="pick-folder">Trocar</button></span>` : '';
-    return `<span class="label">Salvar em</span>${seg('dest.mode', [['same', 'Mesma pasta'], ['folder', 'Outra pasta…']], d.mode === 'folder' && d.folder ? 'folder' : 'same')}${chip}`;
+    return d.mode === 'folder' && d.folder
+      ? `<span class="chip" title="${esc(d.folder)}">${I.folder}<span>${esc(d.folder)}</span><button data-act="pick-folder">Trocar</button></span>` : '';
   }
 
-  function footer() {
+  function actionbar() {
     const n = pendingItems().length;
-    let left = destHtml(), cta = '';
     if (state.phase === 'converting') {
-      left = '<div class="result"><b>Convertendo</b><span class="num" id="overall-text"></span></div>';
-      cta = '<button class="btn big" data-act="cancel">Cancelar</button>';
-    } else if (state.phase === 'done' && state.summary) {
+      return `<div class="progress-line"><div class="pl-text"><b>Convertendo</b><span class="num" id="overall-text"></span></div><div class="bar"><i id="overall"></i></div></div>
+        <button class="btn" data-act="cancel">Cancelar</button>`;
+    }
+    if (state.phase === 'done' && state.summary) {
       const s = state.summary;
       const saved = s.inBytes - s.outBytes;
       const msg = s.error ? s.error
         : `${plural(s.done, 'arquivo convertido', 'arquivos convertidos')}${s.failed ? `, ${s.failed} com erro` : ''}${s.cancelled ? `, ${s.cancelled} cancelado${s.cancelled > 1 ? 's' : ''}` : ''}`;
       const sub = s.done ? (saved >= 0 ? `${fmtBytes(saved)} a menos` : `${fmtBytes(-saved)} a mais`) : '';
-      left = `<div class="result"><b>${s.done ? 'Pronto.' : 'Não deu certo.'}</b><span>${esc(msg)}${sub ? `. ${sub}.` : '.'}</span></div>`;
-      cta = `${s.folders && s.folders.length ? `<button class="btn" data-act="open-out">${I.folder}Abrir pasta</button>` : ''}
-        <button class="btn primary big" data-act="new">Nova conversão</button>`;
-    } else {
-      cta = `<button class="btn primary big" data-act="convert" ${n ? '' : 'disabled'}>Converter ${plural(n, 'arquivo', 'arquivos')}</button>`;
+      return `<div class="grow result"><span class="done-badge ${s.done ? '' : 'err'}">${s.done ? I.check : I.bang}</span><b>${s.done ? 'Pronto.' : 'Não deu certo.'}</b><span>${esc(msg)}${sub ? `. ${sub}.` : '.'}</span></div>
+        ${s.folders && s.folders.length ? `<button class="btn" data-act="open-out">${I.folder}Abrir pasta</button>` : ''}
+        <button class="btn primary" data-act="new">Nova conversão</button>`;
     }
-    return `<footer class="footer">
-      <div class="overall"><i id="overall"></i></div>
-      <div class="dest">${left}</div>
-      ${credit()}
-      <div class="cta">${cta}</div>
-    </footer>`;
+    return `<div class="grow"><span class="label">Salvar em</span>${destSeg()}${destChip()}</div>
+      <button class="btn primary" data-act="convert" ${n ? '' : 'disabled'}>Converter ${plural(n, 'arquivo', 'arquivos')}</button>`;
   }
 
   function updateOverall() {
     const its = okItems().filter((i) => i.status);
-    const bar = document.getElementById('overall');
-    const txt = document.getElementById('overall-text');
-    if (!its.length) { if (bar) bar.style.width = '0'; return; }
-    const p = its.reduce((s, i) => s + (i.status === 'done' || i.status === 'error' || i.status === 'cancelled' ? 1 : i.progress || 0), 0) / its.length;
-    if (bar) bar.style.width = `${state.phase === 'converting' ? p * 100 : 0}%`;
+    const p = its.length ? its.reduce((s, i) => s + (['done', 'error', 'cancelled'].includes(i.status) ? 1 : i.progress || 0), 0) / its.length : 0;
     const finished = its.filter((i) => ['done', 'error', 'cancelled'].includes(i.status)).length;
-    if (txt) txt.textContent = `${nf0.format(finished)} de ${nf0.format(its.length)} prontos`;
+    const bar = document.getElementById('overall');
+    if (bar) bar.style.width = `${p * 100}%`;
+    const txt = document.getElementById('overall-text');
+    const run = its.find((i) => i.status === 'running');
+    if (txt) txt.textContent = `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}`;
     const qb = document.getElementById('q-bar');
     if (qb) qb.style.width = `${p * 100}%`;
     const qt = document.getElementById('q-text');
-    if (qt) {
-      const run = its.find((i) => i.status === 'running');
-      qt.textContent = its.length > 1 ? `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}` : `${Math.round(p * 100)}%`;
-    }
+    if (qt) qt.textContent = its.length > 1 ? `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}` : `${Math.round(p * 100)}%`;
   }
 
   // ---------- Janela rápida ----------
@@ -657,7 +755,7 @@
     if (sameOk) opts.push({ v: 'same', label: 'Mesmo formato', hint: 'Só comprime, sem trocar a extensão.' }, { sep: true });
     for (const t of common) {
       const someSame = its.some((i) => i.targets.some((x) => x.id === t.id && x.same));
-      opts.push({ v: t.id, label: t.label, hint: someSame && its.length > 1 ? `${t.hint.replace('Mesmo formato, só comprime.', '')} Os ${t.label} da seleção só são comprimidos.`.trim() : t.hint });
+      opts.push({ v: t.id, label: t.label, hint: someSame && its.length > 1 ? `Os ${t.label} da seleção só são comprimidos.` : t.hint });
     }
     return opts;
   }
@@ -671,74 +769,98 @@
     const its = okItems();
     const bad = state.items.filter((i) => !i.ok);
     const first = its[0] || state.items[0];
-    let body = '';
+    let body = '', foot = '';
     if (!first) {
-      body = `<p class="empty-sub" style="margin:0">${state.loading ? 'Lendo o arquivo…' : 'Nenhum arquivo compatível.'}</p>`;
+      body = `<p class="help" style="padding:12px 6px">${state.loading ? 'Lendo o arquivo…' : 'Nenhum arquivo compatível.'}</p>`;
     } else {
       const total = its.reduce((s, i) => s + i.size, 0);
-      const stack = its.slice(0, 3).map((i) => thumbHtml(i, `data-tid="${i.id}"`)).join('');
-      const fileBlock = `<div class="q-file"><div class="stack">${stack || thumbHtml(first)}</div><div style="min-width:0">
+      const stack = its.slice(0, 3).map(thumbHtml).join('') || thumbHtml(first);
+      const fileBlock = `<div class="q-file"><div class="stack">${stack}</div><div style="min-width:0">
         <b title="${esc(first.path)}">${esc(first.name)}</b>
         <small>${its.length > 1 ? `e mais ${plural(its.length - 1, 'arquivo', 'arquivos')}. ${fmtBytes(total)} no total` : `${esc(first.meta)}. ${fmtBytes(first.size)}`}</small>
-        ${bad.length ? `<small class="err" style="display:block;color:var(--danger)">${plural(bad.length, 'arquivo ignorado', 'arquivos ignorados')}: ${esc(bad[0].error)}</small>` : ''}
+        ${bad.length ? `<small style="display:block;color:var(--red-ink)">${plural(bad.length, 'arquivo ignorado', 'arquivos ignorados')}: ${esc(bad[0].error)}</small>` : ''}
       </div></div>`;
       if (state.phase === 'converting') {
-        body = `${fileBlock}<div class="q-progress"><div class="bigbar"><i id="q-bar"></i></div><p id="q-text">Começando…</p></div>`;
+        body = `${fileBlock}<div class="group q-progress"><div class="bar"><i id="q-bar"></i></div><p id="q-text">Começando…</p></div>`;
+        foot = '<div class="actions"><span></span><button class="btn" data-act="cancel">Cancelar</button></div>';
       } else if (state.phase === 'done' && state.summary) {
         const s = state.summary;
         const failed = its.filter((i) => i.status === 'error');
         const d = delta(s.inBytes, s.outBytes);
         body = `<div class="q-done">
+          <span class="done-badge ${s.done ? '' : 'err'}">${s.done ? I.check : I.bang}</span>
           <b>${s.done ? 'Pronto.' : 'Não deu certo.'}</b>
           ${s.done ? `<p class="num">${fmtBytes(s.inBytes)} viraram ${fmtBytes(s.outBytes)}${d ? ` (${d.text})` : ''}. ${plural(s.done, 'arquivo salvo', 'arquivos salvos')}.</p>` : ''}
           ${failed.map((i) => `<p class="err">${esc(i.name)}: ${esc(i.convError)}</p>`).join('')}
         </div>`;
+        foot = `<div class="actions"><button class="btn" data-act="open-out">${I.folder}Mostrar na pasta</button><button class="btn primary" data-act="close">Fechar</button></div>`;
       } else {
         body = `${fileBlock}
-          <div class="q-target"><span class="label">Converter para</span>${selectBtn('quick', quickLabel())}</div>
-          <div class="settings" id="settings"></div>
-          <section class="meter" id="meter"></section>
-          <div class="q-dest"><span class="label">Salvar em</span>${seg('dest.mode', [['same', 'Mesma pasta'], ['folder', 'Outra pasta…']], state.dest.mode === 'folder' && state.dest.folder ? 'folder' : 'same')}
-            ${state.dest.mode === 'folder' && state.dest.folder ? `<span class="path-chip" title="${esc(state.dest.folder)}">${I.folder}<span>${esc(state.dest.folder)}</span><button data-act="pick-folder">Trocar</button></span>` : ''}</div>`;
+          <div class="group"><div class="q-target"><span class="t">Converter para</span>${popupBtn('quick', quickLabel()).replace('class="popup"', 'class="popup big"')}</div></div>
+          <div class="settings" id="settings" style="padding:0;overflow:visible"></div>
+          <section class="meter group" id="meter"></section>
+          <div class="group"><div class="g-title"><span>Salvar em</span></div>${destSeg()}${destChip()}</div>`;
+        foot = `<div class="actions"><button class="btn small" data-act="full" ${its.length ? '' : 'disabled'}>Abrir no app completo</button><button class="btn primary" data-act="convert" ${its.length ? '' : 'disabled'}>Converter</button></div>`;
       }
     }
-    let actions;
-    if (state.phase === 'converting') actions = '<span></span><button class="btn big" data-act="cancel">Cancelar</button>';
-    else if (state.phase === 'done') actions = `<button class="btn" data-act="open-out">${I.folder}Mostrar na pasta</button><button class="btn primary big" data-act="close">Fechar</button>`;
-    else actions = `<button class="btn ghost" data-act="full" ${its.length ? '' : 'disabled'}>Abrir no app completo</button><button class="btn primary big" data-act="convert" ${its.length ? '' : 'disabled'}>Converter</button>`;
-    app.innerHTML = `${titlebar()}<main class="quick"><div class="quick-inner">${body}</div></main>
-      <div class="q-bottom"><div class="q-actions">${actions}</div><div class="q-credit">${credit()}</div></div>`;
-    observeQuick();
+    app.innerHTML = `<div class="quick-shell">
+      <div class="dragbar"></div>
+      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}<span class="sep"></span><button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button></nav>
+      <main class="sheet glass quick">
+        <div class="sheet-body"><div class="sheet-inner">${body}</div></div>
+        <div class="sheet-foot">${foot}${credit('credit-line')}</div>
+      </main>
+    </div>`;
     renderSettings();
     renderMeter(true);
     updateOverall();
+    observeQuick();
   }
 
-  // ---------- Menus (popover) ----------
+  // Janela rápida acompanha a altura do conteúdo (o processo principal limita à área útil da tela).
+  let quickRO = null;
+  function observeQuick() {
+    if (!quickRO) {
+      quickRO = new ResizeObserver(() => {
+        const inner = document.querySelector('.sheet-inner');
+        const foot = document.querySelector('.sheet-foot');
+        if (!inner || !foot) return;
+        const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 50;
+        api.fitHeight(Math.ceil(top + 10 + 14 + 6 + inner.scrollHeight + foot.offsetHeight + 10));
+      });
+    }
+    quickRO.disconnect();
+    const inner = document.querySelector('.sheet-inner');
+    if (inner) quickRO.observe(inner);
+  }
+
+  // ---------- Menus ----------
 
   let menu = null;
   function openMenu(anchor, options, current, onPick) {
     closeMenu();
+    popover.classList.remove('prefs-pop');
     popover.innerHTML = options.map((o, i) => o.sep ? '<div class="opt-sep"></div>'
-      : `<button class="opt ${String(o.v) === String(current) ? 'active' : ''}" role="option" data-i="${i}" ${o.disabled ? 'disabled' : ''}>
-          <b>${esc(o.label)}</b>${String(o.v) === String(current) ? '<span class="check">✓</span>' : '<span></span>'}${o.hint ? `<small>${esc(o.hint)}</small>` : ''}</button>`).join('');
+      : `<button class="opt" role="option" aria-selected="${String(o.v) === String(current)}" data-i="${i}" ${o.disabled ? 'disabled' : ''}>
+          <span class="check">${String(o.v) === String(current) ? I.check : ''}</span><b>${esc(o.label)}</b>${o.hint ? `<small>${esc(o.hint)}</small>` : ''}</button>`).join('');
     showPopover(anchor);
     menu = { anchor, options, onPick };
-    (popover.querySelector('.opt.active') || popover.querySelector('.opt:not(:disabled)'))?.focus();
+    (popover.querySelector('.opt[aria-selected="true"]') || popover.querySelector('.opt:not(:disabled)'))?.focus({ preventScroll: true });
   }
-  function showPopover(anchor, minWidth = 220) {
+  function showPopover(anchor, minWidth = 220, alignRight = false) {
     popover.hidden = false;
     const r = anchor.getBoundingClientRect();
-    const w = Math.max(r.width, minWidth);
-    popover.style.minWidth = `${w}px`;
-    const ph = popover.offsetHeight;
-    const pw = popover.offsetWidth;
-    let top = r.bottom + 6;
-    let up = false;
+    popover.style.minWidth = `${Math.max(r.width, minWidth)}px`;
+    const ph = popover.offsetHeight, pw = popover.offsetWidth;
+    let top = r.bottom + 6, up = false;
     if (top + ph > innerHeight - 8 && r.top - ph - 6 > 8) { top = r.top - ph - 6; up = true; }
+    const left = alignRight ? Math.min(innerWidth - pw - 8, Math.max(8, r.right - pw)) : Math.max(8, Math.min(r.left, innerWidth - pw - 8));
     popover.classList.toggle('up', up);
+    popover.classList.toggle('right', alignRight);
     popover.style.top = `${Math.max(8, top)}px`;
-    popover.style.left = `${Math.max(8, Math.min(r.right - pw, innerWidth - pw - 8, r.left))}px`;
+    popover.style.left = `${left}px`;
+    popover.dataset.lens = 'popover';
+    applyLens(popover);
   }
   function closeMenu() { popover.hidden = true; popover.innerHTML = ''; menu = null; }
 
@@ -757,11 +879,9 @@
       const ts = new Set(its.map((i) => i.target));
       return { options: [...seen.values()], current: ts.size === 1 ? its[0].target : null, pick: (v) => setTarget(its.filter((i) => i.targets.some((t) => t.id === v)), v, cat) };
     }
-    if (kind === 'quick') {
-      return { options: quickTargetOptions(), current: state.quickTarget, pick: (v) => { state.quickTarget = v; setTarget(okItems(), v); } };
-    }
+    if (kind === 'quick') return { options: quickTargetOptions(), current: state.quickTarget, pick: (v) => { state.quickTarget = v; setTarget(okItems(), v); } };
     if (kind === 'image.resize') return { options: RESIZE.map(([v, l]) => ({ v, label: l })), current: s.image.resize, pick: (v) => setSetting('image', { resize: v === 'original' ? 'original' : Number(v) }) };
-    if (kind === 'video.resolution') return { options: RESOLUTION.map(([v, l]) => ({ v, label: l, hint: v === 'original' ? 'Mantém a resolução do arquivo.' : 'Nunca aumenta: vídeo menor fica como está.' })), current: s.video.resolution, pick: (v) => setSetting('video', { resolution: v === 'original' ? 'original' : Number(v) }) };
+    if (kind === 'video.resolution') return { options: RESOLUTION.map(([v, l]) => ({ v, label: l, hint: v === 'original' ? 'Mantém a resolução do arquivo.' : '' })), current: s.video.resolution, pick: (v) => setSetting('video', { resolution: v === 'original' ? 'original' : Number(v) }) };
     if (kind === 'video.engine') {
       const hw = state.hw;
       return {
@@ -787,7 +907,8 @@
         const row = document.querySelector(`.row[data-id="${it.id}"]`);
         if (row) row.replaceWith(htmlEl(rowHtml(it)));
       }
-      document.querySelector('.bulk').innerHTML = bulk();
+      const b = document.querySelector('.bulk');
+      if (b) b.innerHTML = bulk();
     }
     refreshCaps();
     scheduleEstimate(0);
@@ -801,26 +922,54 @@
     scheduleEstimate(60);
   }
 
-  // ---------- Sobre (engrenagem) ----------
+  // ---------- Aparência e ajustes (popover) ----------
 
-  async function openAbout(anchor) {
+  async function openPrefs(anchor) {
     closeMenu();
-    const hw = state.hw;
     if (state.menuOn === null) { try { state.menuOn = await api.menuStatus(); } catch { state.menuOn = false; } }
-    popover.innerHTML = `<div class="about">
-      <span class="wordmark" aria-label="minime"><span>m</span><span>i</span><span>n</span><span>i</span><span>m</span><span>e</span></span>
-      <p>Converte e encolhe imagens, vídeos e áudios. Versão ${esc(state.version)}.</p>
-      <label class="toggle"><b>Menu do botão direito</b><small>"Converter com MINIME" no Explorer</small>
-        <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''}><i></i></span></label>
-      <p>No Windows 11 o menu aparece em <b>Mostrar mais opções</b> (ou Shift + F10).</p>
-      <hr>
-      <p>Motor de vídeo: ${hw ? esc(hw.h264 ? `${hw.gpuLabel} (${hw.h264.split('_')[1].toUpperCase()}) e ${hw.cpu}` : hw.cpu) : 'detectando…'}</p>
-      <p>Imagens: libvips com mozjpeg. Vídeo e áudio: FFmpeg.</p>
-      <hr>
-      <p>${credit()}</p>
+    const hw = state.hw;
+    popover.innerHTML = `<div class="prefs">
+      <div class="p-head"><img class="appicon" src="assets/icon.png" alt=""><div><b>MINIME</b><small>Versão ${esc(state.version)}. Converte e encolhe imagens, vídeos e áudios.</small></div></div>
+      <div class="sect">Aparência</div>
+      ${seg('theme', THEMES.map(([v, l, icon]) => [v, l, false, '', icon]), state.theme)}
+      <div class="group rows">
+        <label class="g-row"><span class="lbl"><b>Menu do botão direito</b><small>"Converter com MINIME" no Explorer</small></span>
+          <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''} aria-label="Menu do botão direito"><i></i></span></label>
+        <div class="g-row"><span class="lbl"><b>Motor de vídeo</b><small>${hw ? esc(hw.h264 ? `${hw.gpuLabel} (${hw.h264.split('_')[1].toUpperCase()})` : hw.cpu) : 'detectando…'}</small></span></div>
+      </div>
+      <p>No Windows 11 o menu aparece em <b>Mostrar mais opções</b> (ou Shift + F10). Imagens: libvips com mozjpeg. Vídeo e áudio: FFmpeg.</p>
+      <div class="credit-line">${credit()}</div>
     </div>`;
-    showPopover(anchor, 300);
-    menu = { about: true };
+    popover.classList.add('prefs-pop');
+    showPopover(anchor, 320, true);
+    menu = { prefs: true, anchor };
+    flushSegs();
+  }
+
+  function waitForScheme() {
+    return new Promise((res) => {
+      const mq = matchMedia('(prefers-color-scheme: dark)');
+      let done = false;
+      const fin = () => { if (!done) { done = true; res(); } };
+      mq.addEventListener('change', fin, { once: true });
+      setTimeout(fin, 280);
+    });
+  }
+  async function setTheme(v) {
+    if (v === state.theme) return;
+    const run = async () => {
+      const r = await api.setTheme(v);
+      state.theme = r.theme;
+      await waitForScheme();
+      const el = popover.querySelector('[data-seg="theme"]');
+      if (el) {
+        const idx = THEMES.findIndex(([t]) => t === state.theme);
+        el.style.setProperty('--i', String(idx));
+        el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === state.theme)));
+      }
+    };
+    if (document.startViewTransition && !reduceMotion()) document.startViewTransition(run);
+    else run();
   }
 
   // ---------- Conversão ----------
@@ -871,7 +1020,7 @@
       if (o && !o.disabled) pick(o.v);
       return;
     }
-    if (menu && menu.about && popover.contains(e.target) && !e.target.closest('[data-act="site"]')) return;
+    const inPrefs = menu && menu.prefs && popover.contains(e.target);
 
     const menuEl = e.target.closest('[data-menu]');
     if (menuEl && !menuEl.disabled) {
@@ -880,13 +1029,15 @@
       if (m) openMenu(menuEl, m.options, m.current, m.pick);
       return;
     }
-    if (!popover.contains(e.target)) closeMenu();
+    if (!popover.contains(e.target) && !e.target.closest('[data-act="prefs"]')) closeMenu();
 
     const segBtn = e.target.closest('[data-seg] button');
-    if (segBtn && !segBtn.disabled) return onSeg(segBtn.closest('[data-seg]').dataset.seg, segBtn.dataset.v);
-
-    const tab = e.target.closest('[data-tab]');
-    if (tab) { state.tab = tab.dataset.tab; renderSettings(); return; }
+    if (segBtn && !segBtn.disabled) {
+      const host = segBtn.closest('[data-seg]');
+      onSeg(host.dataset.seg, segBtn.dataset.v, host);
+      return;
+    }
+    if (inPrefs && !e.target.closest('[data-act="site"]')) return;
 
     const act = e.target.closest('[data-act]');
     if (!act || act.disabled) return;
@@ -917,7 +1068,7 @@
         break;
       }
       case 'site': api.openSite(); break;
-      case 'about': if (menu && menu.about) closeMenu(); else openAbout(act); break;
+      case 'prefs': if (menu && menu.prefs) closeMenu(); else openPrefs(act); break;
       case 'full': api.openFull(state.items.map((i) => i.path)); break;
       case 'close': api.close(); break;
       default: break;
@@ -926,11 +1077,22 @@
 
   function rerenderDest() {
     if (MODE === 'quick') { render(); return; }
-    const d = document.querySelector('.footer .dest');
-    if (d) d.innerHTML = destHtml();
+    const bar = document.getElementById('actionbar');
+    if (bar && state.phase === 'idle') { bar.innerHTML = actionbar(); flushSegs(); }
   }
 
-  async function onSeg(path, v) {
+  async function onSeg(path, v, host) {
+    const from = segIndex(host);
+    if (path === 'theme') {
+      segFrom.delete(path);
+      const idx = THEMES.findIndex(([t]) => t === v);
+      host.style.setProperty('--i', String(idx));
+      host.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+      setTheme(v);
+      return;
+    }
+    segFrom.set(path, host.classList.contains('none') ? -1 : from);
+    if (path === 'tab') { state.tab = v; renderSettings(); return; }
     const [kind, key] = path.split('.');
     if (path === 'dest.mode') {
       if (v === 'folder') {
@@ -944,6 +1106,7 @@
       const o = OBJ[kind].find((x) => x.v === v);
       state.settings[kind] = { ...o.apply(state.settings[kind]), objective: v };
       saveSettings();
+      renderSettings();
       await refreshCaps();
       scheduleEstimate(0);
       return;
@@ -965,13 +1128,14 @@
       if (pv !== v) {
         const wasLossless = s.objective === 'lossless';
         s.objective = 'custom';
-        document.querySelectorAll(`[data-seg="${kind}.objective"] button`).forEach((b) => b.setAttribute('aria-pressed', 'false'));
+        const sg = document.querySelector(`[data-seg="${kind}.objective"]`);
+        if (sg) { sg.classList.add('none'); sg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false')); }
         const help = document.querySelector(`[data-help="${kind}"]`);
         if (help) help.textContent = CUSTOM_HELP;
         if (wasLossless) refreshCaps();
       }
     }
-    if (kind === 'image') document.querySelector('[data-value="image.quality"]').textContent = `${v}%`;
+    if (kind === 'image') { const lbl = document.querySelector('[data-value="image.quality"]'); if (lbl) lbl.textContent = `${v}%`; }
     saveSettings();
     scheduleEstimate(kind === 'image' ? 200 : 90);
   });
@@ -995,24 +1159,29 @@
   });
 
   document.addEventListener('keydown', (e) => {
-    if (!popover.hidden) {
-      if (e.key === 'Escape') { const a = menu && menu.anchor; closeMenu(); a?.focus(); e.preventDefault(); return; }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const opts = [...popover.querySelectorAll('.opt:not(:disabled)')];
-        const i = opts.indexOf(document.activeElement);
-        const n = e.key === 'ArrowDown' ? (i + 1) % opts.length : (i - 1 + opts.length) % opts.length;
-        opts[n]?.focus();
-        e.preventDefault();
-      }
+    if (popover.hidden) return;
+    if (e.key === 'Escape') { const a = menu && menu.anchor; closeMenu(); a?.focus(); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const opts = [...popover.querySelectorAll('.opt:not(:disabled)')];
+      if (!opts.length) return;
+      const i = opts.indexOf(document.activeElement);
+      const n = e.key === 'ArrowDown' ? (i + 1) % opts.length : (i - 1 + opts.length) % opts.length;
+      opts[n]?.focus();
+      e.preventDefault();
     }
   });
   window.addEventListener('resize', closeMenu);
-  window.addEventListener('blur', () => { if (!(menu && menu.about)) closeMenu(); });
+  window.addEventListener('blur', () => { if (!(menu && menu.prefs)) closeMenu(); });
+  document.addEventListener('scroll', (e) => { if (menu && menu.options && e.target.id === 'scroller') closeMenu(); }, true);
 
   // Arrastar e soltar (arquivos e pastas)
   let dragDepth = 0;
   const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-  window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; if (state.phase !== 'converting') dropEl.hidden = false; });
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth++;
+    if (state.phase !== 'converting' && dropEl.hidden) { dropEl.hidden = false; const g = dropEl.querySelector('.glass'); g.dataset.lens = 'drop'; applyLens(g); }
+  });
   window.addEventListener('dragover', (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = state.phase === 'converting' ? 'none' : 'copy'; });
   window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) dropEl.hidden = true; });
   window.addEventListener('drop', (e) => {
@@ -1021,25 +1190,18 @@
     addPaths(files.map((f) => api.pathForFile(f)).filter(Boolean));
   });
 
-  // Janela rápida acompanha a altura do conteúdo (o processo principal limita à área útil da tela).
-  let quickRO = null;
-  function observeQuick() {
-    if (!quickRO) {
-      quickRO = new ResizeObserver(() => {
-        const inner = document.querySelector('.quick-inner');
-        const top = document.querySelector('.titlebar');
-        const bottom = document.querySelector('.q-bottom');
-        if (inner && top && bottom) api.fitHeight(Math.ceil(top.offsetHeight + inner.scrollHeight + bottom.offsetHeight));
-      });
-    }
-    quickRO.disconnect();
-    const inner = document.querySelector('.quick-inner');
-    if (inner) quickRO.observe(inner);
-  }
-
   // ---------- Início ----------
 
   (async () => {
+    try { const t = await api.getTheme(); state.theme = t.theme; } catch {}
+    api.onTheme((t) => {
+      state.theme = t.theme;
+      const el = popover.querySelector('[data-seg="theme"]');
+      if (el) {
+        el.style.setProperty('--i', String(THEMES.findIndex(([v]) => v === t.theme)));
+        el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === t.theme)));
+      }
+    });
     render();
     api.info().then((i) => { state.version = i.version; });
     api.hardware().then((hw) => { state.hw = hw; renderSettings(); }).catch(() => {});

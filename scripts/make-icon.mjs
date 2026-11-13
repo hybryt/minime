@@ -35,9 +35,18 @@ sizes.forEach((z, i) => {
   offset += pngs[i].length;
 });
 
+// Mac: ícone 1024 px no grid da Apple (desenho de 824 px centralizado, com sombra suave).
+const inner = svg(256).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+const macSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-opacity=".28"/></filter></defs>
+  <g filter="url(#sh)" transform="translate(72.53 72.53) scale(3.4333)">${inner}</g>
+</svg>`;
+const macPng = await sharp(Buffer.from(macSvg)).png().toBuffer();
+
 mkdirSync(join(ROOT, 'build'), { recursive: true });
+writeFileSync(join(ROOT, 'build/icon.png'), macPng);
 mkdirSync(join(ROOT, 'src/renderer/assets'), { recursive: true });
 writeFileSync(join(ROOT, 'build/icon.ico'), Buffer.concat([header, ...pngs]));
 writeFileSync(join(ROOT, 'src/renderer/assets/icon.png'), pngs[sizes.length - 1]);
 writeFileSync(join(ROOT, 'src/renderer/assets/icon.svg'), svg(256));
-console.log('Ícone gerado: build/icon.ico e src/renderer/assets/icon.png');
+console.log('Ícone gerado: build/icon.ico, build/icon.png (Mac) e src/renderer/assets/icon.png');

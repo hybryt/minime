@@ -1,13 +1,17 @@
 {
   "name": "minime",
   "productName": "MINIME",
-  "version": "1.1.0",
-  "description": "Converte e encolhe imagens, vídeos e áudios no Windows. Criado por Alan Moreira.",
+  "version": "1.2.0",
+  "description": "Converte e encolhe imagens, vídeos e áudios no Windows e no Mac. Criado por Alan Moreira.",
   "author": {
     "name": "Alan Moreira",
     "url": "https://alanmore.com.br"
   },
   "homepage": "https://alanmore.com.br",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hybryt/minime.git"
+  },
   "license": "MIT",
   "private": true,
   "main": "src/main/main.js",
@@ -18,9 +22,12 @@
     "nsis": "node scripts/gen-nsis.mjs",
     "test:engine": "node scripts/test-engine.mjs",
     "prebuild": "node scripts/make-icon.mjs && node scripts/gen-nsis.mjs",
-    "build": "electron-builder --win nsis --x64"
+    "build": "electron-builder --win nsis --x64",
+    "prebuild:mac": "node scripts/make-icon.mjs",
+    "build:mac": "electron-builder --mac --arm64 --x64"
   },
   "dependencies": {
+    "electron-updater": "6.8.11",
     "sharp": "0.35.5"
   },
   "devDependencies": {
@@ -43,7 +50,7 @@
     ],
     "extraResources": [
       {
-        "from": "vendor/ffmpeg",
+        "from": "vendor/ffmpeg-${os}-${arch}",
         "to": "ffmpeg",
         "filter": [
           "**/*"
@@ -53,6 +60,15 @@
     "asarUnpack": [
       "**/node_modules/sharp/**",
       "**/node_modules/@img/**"
+    ],
+    "afterPack": "scripts/after-pack.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hybryt",
+        "repo": "minime",
+        "releaseType": "draft"
+      }
     ],
     "win": {
       "target": "nsis",
@@ -76,6 +92,62 @@
       "include": "build/installer.nsh",
       "artifactName": "MINIME-Setup-${version}.${ext}",
       "uninstallDisplayName": "MINIME"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.photography",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "12.0",
+      "artifactName": "MINIME-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "LSMultipleInstancesProhibited": true
+      },
+      "fileAssociations": [
+        {
+          "ext": ["jpg", "jpeg", "png", "webp", "avif", "tif", "tiff", "bmp", "gif", "ico", "svg"],
+          "name": "Imagem",
+          "role": "Viewer",
+          "rank": "Alternate"
+        },
+        {
+          "ext": ["mp4", "m4v", "mkv", "mov", "avi", "webm", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp", "ogv"],
+          "name": "Vídeo",
+          "role": "Viewer",
+          "rank": "Alternate"
+        },
+        {
+          "ext": ["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "opus", "wma", "aif", "aiff"],
+          "name": "Áudio",
+          "role": "Viewer",
+          "rank": "Alternate"
+        }
+      ]
+    },
+    "dmg": {
+      "title": "MINIME ${version}",
+      "window": {
+        "width": 560,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 410,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     }
   }
 }

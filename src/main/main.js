@@ -3,7 +3,10 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Menu, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const jobs = require('./engine/jobs');
+const ff = require('./engine/ffmpeg');
+const updater = require('./updater');
 const hardware = require('./engine/hardware');
 const F = require('./engine/formats');
 const shellMenu = require('./shell');
@@ -12,7 +15,19 @@ const SITE = 'https://alanmore.com.br';
 const RENDERER = path.join(__dirname, '..', 'renderer', 'index.html');
 const ICON = path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
 
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+
 app.setAppUserModelId('br.com.alanmore.minime');
+
+// Mac: arquivos chegam pelo Finder ("Abrir com", arrastar no ícone do Dock), não pela linha de comando.
+let started = false;
+const openQueue = [];
+app.on('open-file', (e, file) => {
+  e.preventDefault();
+  if (app.isReady() && started) handleLaunch({ mode: 'open', files: [file] });
+  else openQueue.push(file);
+});
 
 // ---------- Argumentos ----------
 // MINIME.exe --quick webp "C:\foto.jpg"   (menu do botão direito)
@@ -24,6 +39,7 @@ function parseArgs(argv) {
     const a = args[i];
     if (a === '--quick') { out.mode = 'quick'; out.target = String(args[++i] || '').toLowerCase(); continue; }
     if (a === '--open') { out.mode = out.mode || 'open'; continue; }
+    if (a === '--login') { out.login = true; continue; }
     if (a === '--register-shell') { out.mode = 'register'; continue; }
     if (a === '--unregister-shell') { out.mode = 'unregister'; continue; }
     if (a.startsWith('--')) continue;
@@ -95,12 +111,15 @@ function applyTheme(theme) {
 
 function baseOptions(extra) {
   const c = palette();
+  // Windows: botões nativos flutuando sobre o fundo. Mac: os três botões coloridos alinhados à barra de vidro.
+  const chrome = IS_MAC
+    ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 20, y: 23 } }
+    : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#00000000', symbolColor: c.fg, height: 44 } };
   return {
     show: false,
     backgroundColor: c.bg,
-    icon: fs.existsSync(ICON) ? ICON : undefined,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: c.fg, height: 44 },
+    icon: !IS_MAC && fs.existsSync(ICON) ? ICON : undefined,
+    ...chrome,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -141,16 +160,20 @@ function harden(win) {
   win.on('closed', () => { jobs.cancel(String(id)); pending.delete(id); quickWins.delete(id); });
 }
 
-function createMainWindow(files = []) {
+function createMainWindow(files = [], { minimized = false } = {}) {
   if (mainWin && !mainWin.isDestroyed()) {
     if (mainWin.isMinimized()) mainWin.restore();
     mainWin.focus();
-    if (files.length) mainWin.webContents.send('launch:add', { files });
+    const p = pending.get(mainWin.webContents.id);
+    if (files.length && p && !p.delivered) p.files.push(...files);
+    else if (files.length) mainWin.webContents.send('launch:add', { files });
     return mainWin;
   }
   mainWin = new BrowserWindow(baseOptions({ width: 1220, height: 790, minWidth: 960, minHeight: 640, title: 'MINIME' }));
   pending.set(mainWin.webContents.id, { mode: 'main', target: null, files });
   harden(mainWin);
+  // Aberto junto com o computador: já aparece minimizado, sem roubar a tela.
+  if (minimized) mainWin.once('show', () => mainWin.minimize());
   mainWin.on('closed', () => { mainWin = null; });
   mainWin.loadFile(RENDERER, { query: { mode: 'main' } });
   return mainWin;
@@ -185,15 +208,67 @@ function handleLaunch(l) {
     createQuickWindow(l.target, l.files);
     return;
   }
-  createMainWindow(l.files);
+  createMainWindow(l.files, { minimized: !!l.login && !l.files.length });
+}
+
+function appMenu() {
+  if (!IS_MAC) return null;
+  return Menu.buildFromTemplate([
+    { label: 'MINIME', submenu: [{ role: 'about', label: 'Sobre o MINIME' }, { type: 'separator' }, { role: 'hide', label: 'Ocultar MINIME' }, { role: 'hideOthers', label: 'Ocultar outros' }, { type: 'separator' }, { role: 'quit', label: 'Sair do MINIME' }] },
+    { label: 'Editar', submenu: [{ role: 'undo', label: 'Desfazer' }, { role: 'redo', label: 'Refazer' }, { type: 'separator' }, { role: 'cut', label: 'Recortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Colar' }, { role: 'selectAll', label: 'Selecionar tudo' }] },
+    { label: 'Janela', submenu: [{ role: 'minimize', label: 'Minimizar' }, { role: 'zoom', label: 'Zoom' }, { role: 'close', label: 'Fechar janela' }] },
+  ]);
+}
+
+// ---------- Preferências de sistema: atualizar sozinho e abrir com o computador ----------
+
+// O instalador do Windows grava as escolhas da tela "Preferências" em HKCU\Software\MINIME.
+function installerPrefs() {
+  if (!IS_WIN || !app.isPackaged) return null;
+  try {
+    const out = execFileSync('reg.exe', ['query', 'HKCU\\Software\\MINIME', '/v', 'AutoUpdate'], { windowsHide: true }).toString();
+    const m = /AutoUpdate\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(out);
+    return m ? { autoUpdate: parseInt(m[1], 16) === 1 } : null;
+  } catch { return null; }
+}
+
+function loginOptions() {
+  return IS_WIN ? { name: 'MINIME', path: process.execPath, args: ['--login'] } : {};
+}
+function getOpenAtLogin() {
+  if (!app.isPackaged) return !!readPrefs().openAtLogin;
+  try { return !!app.getLoginItemSettings(loginOptions()).openAtLogin; } catch { return false; }
+}
+function setOpenAtLogin(on) {
+  // Em desenvolvimento só guarda a escolha: registrar o electron.exe no início do Windows seria errado.
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on, ...loginOptions() });
+  writePrefs({ openAtLogin: !!on });
+  return getOpenAtLogin();
+}
+
+function prefsInit() {
+  let p = readPrefs();
+  if (p.autoUpdate === undefined) {
+    const inst = installerPrefs();
+    p = writePrefs({ autoUpdate: inst ? inst.autoUpdate : true, firstRunDone: !!inst });
+  }
+  return p;
+}
+
+function broadcast(channel, data) {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, data);
 }
 
 function start() {
-  Menu.setApplicationMenu(null);
-  applyTheme(readPrefs().theme);
+  started = true;
+  Menu.setApplicationMenu(appMenu());
+  const prefs = prefsInit();
+  applyTheme(prefs.theme);
   if (process.env.MINIME_THEME) nativeTheme.themeSource = process.env.MINIME_THEME;
   getHardware();
-  handleLaunch(launch.mode ? launch : { mode: 'open', files: launch.files });
+  updater.init({ autoUpdate: prefs.autoUpdate !== false, onState: (st) => broadcast('update:state', st) });
+  const files = [...launch.files, ...openQueue.splice(0)];
+  handleLaunch(launch.mode ? { ...launch, files } : { mode: 'open', files, login: launch.login });
   nativeTheme.on('updated', () => {
     const c = palette();
     for (const w of BrowserWindow.getAllWindows()) {
@@ -203,7 +278,32 @@ function start() {
   });
 }
 
+// Fechou a última janela: o app sai de verdade, inclusive no Mac (nada fica rodando escondido).
 app.on('window-all-closed', () => app.quit());
+app.on('activate', () => { if (started && !BrowserWindow.getAllWindows().length) createMainWindow(); });
+
+// Saída limpa: cancela conversões, mata todo FFmpeg e apaga arquivos que ficaram pela metade.
+let quittingClean = false;
+app.on('before-quit', (e) => {
+  if (quittingClean) return;
+  if (jobs.busyCount() > 0) {
+    e.preventDefault();
+    quittingClean = true;
+    jobs.cancelAll();
+    ff.killAll();
+    const t0 = Date.now();
+    const wait = () => {
+      if (jobs.busyCount() === 0 || Date.now() - t0 > 3000) { ff.killAll(); jobs.cleanupPartials(); app.quit(); }
+      else setTimeout(wait, 40);
+    };
+    wait();
+    return;
+  }
+  ff.killAll();
+  jobs.cleanupPartials();
+});
+app.on('will-quit', () => { ff.killAll(); jobs.cleanupPartials(); });
+process.on('exit', () => ff.killAll());
 
 // ---------- IPC ----------
 
@@ -274,10 +374,31 @@ ipcMain.handle('theme:set', (_e, theme) => {
 });
 
 ipcMain.handle('app:hardware', () => getHardware());
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged }));
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged, platform: process.platform }));
+ipcMain.handle('app:system', async () => {
+  const hw = await getHardware();
+  return { ...(hw || {}), emulated: !!app.runningUnderARM64Translation, lanes: jobs.lanes() };
+});
 
-ipcMain.handle('menu:status', () => shellMenu.isRegistered());
+function prefsView() {
+  const p = readPrefs();
+  return { autoUpdate: p.autoUpdate !== false, openAtLogin: getOpenAtLogin(), firstRunDone: !!p.firstRunDone, update: updater.getState() };
+}
+ipcMain.handle('prefs:get', () => prefsView());
+ipcMain.handle('prefs:set', (_e, patch = {}) => {
+  if ('autoUpdate' in patch) { writePrefs({ autoUpdate: !!patch.autoUpdate }); updater.setAuto(!!patch.autoUpdate); }
+  if ('openAtLogin' in patch) setOpenAtLogin(!!patch.openAtLogin);
+  if ('firstRunDone' in patch) writePrefs({ firstRunDone: !!patch.firstRunDone });
+  return prefsView();
+});
+ipcMain.handle('update:check', (_e, manual) => updater.check(!!manual));
+ipcMain.handle('update:download', () => updater.download());
+ipcMain.handle('update:install', () => { if (jobs.busyCount() === 0) updater.install(); return updater.getState(); });
+
+// O menu do botão direito pelo registro é só do Windows. No Mac o caminho é "Abrir com" no Finder.
+ipcMain.handle('menu:status', () => (IS_WIN ? shellMenu.isRegistered() : null));
 ipcMain.handle('menu:set', async (_e, on) => {
+  if (!IS_WIN) return null;
   if (on) await shellMenu.register(shellCommand()); else await shellMenu.unregister();
   return shellMenu.isRegistered();
 });

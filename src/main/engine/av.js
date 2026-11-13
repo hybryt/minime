@@ -91,6 +91,7 @@ function encoderArgs(enc, b) {
   if (e.endsWith('_amf')) return ['-c:v', e, '-usage', 'transcoding', '-quality', 'quality', '-rc', 'vbr_peak', '-b:v', B, '-maxrate', MAX, '-bufsize', BUF];
   if (e.endsWith('_nvenc')) return ['-c:v', e, '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', B, '-maxrate', MAX, '-bufsize', BUF];
   if (e.endsWith('_qsv')) return ['-c:v', e, '-preset', 'slow', '-b:v', B, '-maxrate', MAX, '-bufsize', BUF];
+  if (e.endsWith('_videotoolbox')) return ['-c:v', e, '-b:v', B, '-maxrate', MAX, '-bufsize', BUF, '-realtime', '0', '-prio_speed', '0'];
   if (e === 'libx264') return ['-c:v', e, '-preset', 'medium', '-b:v', B, '-maxrate', MAX, '-bufsize', BUF];
   if (e === 'libx265') return ['-c:v', e, '-preset', 'medium', '-b:v', B, '-maxrate', MAX, '-bufsize', BUF, '-x265-params', 'log-level=error'];
   if (e === 'libvpx-vp9') return ['-c:v', e, '-b:v', B, '-maxrate', MAX, '-bufsize', BUF, '-deadline', 'good', '-cpu-used', '3', '-row-mt', '1', '-tile-columns', '2'];
@@ -151,6 +152,12 @@ function planVideo(info, target, vs, hw) {
   }
 
   const enc = pickVideoEncoder(target, vs, hw);
+  // Decodificar na GPU só quando o encoder também é da GPU. Medido num Ryzen 7 7800X3D: HEVC 4K ficou 42% mais
+  // rápido na GPU, mas H.264 4K ficou mais lento (copiar os quadros de volta custa mais que decodificar).
+  // Então: processador forte (8+ núcleos) manda pra GPU só os codecs pesados; processador fraco manda tudo.
+  const heavyCodecs = ['hevc', 'av1', 'vp9'];
+  const decodable = hw && hw.cores >= 8 ? heavyCodecs : [...heavyCodecs, 'h264', 'mpeg2video'];
+  const hwDecode = enc.gpu && hw && hw.hwDecode && decodable.includes(info.video.codec) ? hw.hwDecode : null;
   const srcBitrate = info.video && info.video.bitrate ? info.video.bitrate * (dims.w * dims.h) / Math.max(1, info.video.width * info.video.height) : 0;
   const b = videoBitrate(q, dims, fps, enc.codec, srcBitrate);
   const pix = enc.encoder.endsWith('_qsv') ? 'nv12' : 'yuv420p';
@@ -161,7 +168,7 @@ function planVideo(info, target, vs, hw) {
     ...encoderArgs(enc, b), ...containerArgs(target, enc.codec)];
   if (target === 'avi' || target === 'webm') args.push('-sn');
   const est = ((b + aud.bitrate) * dur) / 8 * 1.015;
-  return { args, estimate: est, detail: { bitrate: b, encoder: enc.encoder, gpu: enc.gpu, w: dims.w, h: dims.h } };
+  return { args, inputArgs: hwDecode ? ['-hwaccel', hwDecode] : [], estimate: est, detail: { bitrate: b, encoder: enc.encoder, gpu: enc.gpu, hwDecode, w: dims.w, h: dims.h } };
 }
 
 function planAudio(info, target, as, category) {
@@ -229,8 +236,10 @@ function plan(item, target, settings, hw) {
   if (kind === 'audio') p = planAudio(info, target, settings.audio, item.category);
   else p = planVideo(info, target, settings.video, hw);
   // Entradas extras (lavfi) precisam vir depois do -i principal pra numeração [0] ser o arquivo.
-  const argsWithInput = ['-i', item.path, ...p.args];
-  return { ...p, kind, argsWithInput };
+  const inputArgs = p.inputArgs || [];
+  const argsWithInput = [...inputArgs, '-i', item.path, ...p.args];
+  const argsNoHw = ['-i', item.path, ...p.args];
+  return { ...p, kind, argsWithInput, argsNoHw, usesHwDecode: inputArgs.length > 0 };
 }
 
 function capabilities(category, target, items) {
@@ -245,7 +254,14 @@ function capabilities(category, target, items) {
 
 async function convert(item, target, settings, hw, outPath, { onProgress, signal } = {}) {
   const p = plan(item, target, settings, hw);
-  await ff.runWithProgress([...p.argsWithInput, outPath], { duration: item.info.duration, onProgress, signal });
+  try {
+    await ff.runWithProgress([...p.argsWithInput, outPath], { duration: item.info.duration, onProgress, signal });
+  } catch (e) {
+    // Arquivo que a GPU não conseguiu ler: tenta de novo decodificando no processador.
+    if (!p.usesHwDecode || e.cancelled || (signal && signal.aborted)) throw e;
+    if (onProgress) onProgress(0);
+    await ff.runWithProgress([...p.argsNoHw, outPath], { duration: item.info.duration, onProgress, signal });
+  }
   return p;
 }
 

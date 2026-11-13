@@ -612,6 +612,37 @@ button { cursor: default; }
 .q-done p { margin: 0; color: var(--label-2); }
 .q-done .err { color: var(--red-ink); font-size: 12.5px; }
 
+/* ---------- Mac: os três botões coloridos ficam à esquerda, a barra de vidro começa depois deles ---------- */
+[data-platform="darwin"] .toolbar { left: 88px; }
+[data-platform="darwin"] .quick-shell .toolbar { left: 88px; }
+
+/* ---------- Atualização ---------- */
+.tb-btn.update { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink); padding: 0 12px 0 10px; }
+.tb-btn.update:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.tb-btn .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.popover.prefs-pop { max-height: min(720px, calc(100vh - 64px)); }
+.g-row.upd { min-height: 40px; }
+.g-row.upd small { color: var(--label); font-size: 12.5px; }
+.g-row .btn.small { flex: none; }
+.prefs .group > p { margin: 0; color: var(--label-2); font-size: 12.5px; line-height: 1.45; }
+
+/* ---------- Boas-vindas ---------- */
+.welcome-backdrop {
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px;
+  background: color-mix(in srgb, var(--wall) 42%, transparent);
+  animation: fade .2s ease-out;
+}
+.welcome {
+  width: min(430px, 100%); border-radius: 30px; padding: 28px 20px 20px; text-align: center;
+  display: grid; justify-items: center; gap: 12px; background: var(--glass-strong);
+  animation: pop .28s var(--ease-spring);
+}
+.welcome .appicon { width: 68px; height: 68px; border-radius: 17px; margin: 0 0 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.welcome h2 { margin: 0; font-size: 24px; font-weight: 720; letter-spacing: -.035em; }
+.welcome p { margin: 0 0 4px; color: var(--label-2); font-size: 13.5px; }
+.welcome .group { width: 100%; text-align: left; }
+.welcome .btn { width: 100%; margin-top: 4px; }
+
 /* transição suave ao trocar o tema */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .32s; animation-timing-function: var(--ease-out); }
 

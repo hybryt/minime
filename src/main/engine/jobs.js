@@ -8,8 +8,11 @@ const ff = require('./ffmpeg');
 const img = require('./image');
 const av = require('./av');
 
+const os = require('node:os');
+
 const items = new Map(); // id -> item
 const estimateCache = new Map(); // chave -> bytes
+const inFlight = new Set(); // arquivos de saída sendo gravados agora (apagados se o app fechar no meio)
 let hw = null;
 
 function setHardware(h) { hw = h; }
@@ -269,6 +272,7 @@ async function convertAll(jobs, settings, dest, emit, key = 'default') {
     const { it, target, kind, out } = job;
     if (controller.signal.aborted) { summary.cancelled++; emit({ id: it.id, status: 'cancelled' }); return; }
     emit({ id: it.id, status: 'running', progress: 0, outPath: out });
+    inFlight.add(out);
     try {
       if (kind === 'image') {
         await img.convertImage(it.path, it.ext, it.info, target, settings.image, out);
@@ -281,10 +285,12 @@ async function convertAll(jobs, settings, dest, emit, key = 'default') {
           onProgress: (p) => { if (p - last >= 0.01 || p === 1) { last = p; emit({ id: it.id, status: 'running', progress: p }); } },
         });
       }
+      inFlight.delete(out);
       const outSize = fs.statSync(out).size;
       summary.done++; summary.inBytes += it.size; summary.outBytes += outSize; summary.folders.add(path.dirname(out));
       emit({ id: it.id, status: 'done', progress: 1, outPath: out, outSize });
     } catch (e) {
+      inFlight.delete(out);
       try { fs.unlinkSync(out); } catch {}
       if (e.cancelled || controller.signal.aborted) { summary.cancelled++; emit({ id: it.id, status: 'cancelled' }); }
       else { summary.failed++; emit({ id: it.id, status: 'error', error: friendlyError(e) }); }
@@ -294,8 +300,9 @@ async function convertAll(jobs, settings, dest, emit, key = 'default') {
   // Duas pistas: vídeo um por vez (já usa todos os núcleos ou a GPU), imagem e áudio três por vez.
   const heavy = prepared.filter((j) => j.kind === 'video');
   const light = prepared.filter((j) => j.kind !== 'video');
+  const lane = lanes();
   try {
-    await Promise.all([pool(heavy, 1, runOne), pool(light, 3, runOne)]);
+    await Promise.all([pool(heavy, lane.video, runOne), pool(light, lane.light, runOne)]);
   } finally {
     batches.delete(key);
     for (const p of reserved) reservedGlobal.delete(p);
@@ -307,7 +314,25 @@ async function convertAll(jobs, settings, dest, emit, key = 'default') {
   };
 }
 
-function cancel(key = 'default') { const c = batches.get(key); if (c) c.abort(); }
-function isBusy(key = 'default') { return batches.has(key); }
+// Quantas conversões rodam juntas, pelo tamanho do processador e pela placa de vídeo.
+// Vídeo na GPU aguenta 2 sessões em paralelo; no processador, 1 (o FFmpeg já usa todos os núcleos).
+function lanes() {
+  const cores = Math.max(1, os.cpus().length);
+  return {
+    video: hw && hw.h264 ? 2 : 1,
+    light: Math.max(2, Math.min(8, Math.round(cores / 3))),
+    cores,
+  };
+}
 
-module.exports = { setHardware, addPaths, remove, thumb, estimate, capabilities, convertAll, cancel, isBusy, expandPaths, items };
+function cancel(key = 'default') { const c = batches.get(key); if (c) c.abort(); }
+function cancelAll() { for (const c of batches.values()) c.abort(); }
+function isBusy(key = 'default') { return batches.has(key); }
+function busyCount() { return batches.size; }
+// Fechou o app no meio: apaga na hora o que ficou pela metade (chamado depois de matar o FFmpeg).
+function cleanupPartials() {
+  for (const p of inFlight) { try { fs.unlinkSync(p); } catch {} }
+  inFlight.clear();
+}
+
+module.exports = { setHardware, addPaths, remove, thumb, estimate, capabilities, convertAll, cancel, cancelAll, isBusy, busyCount, cleanupPartials, lanes, expandPaths, items };

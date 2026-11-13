@@ -6,27 +6,50 @@ const fs = require('node:fs');
 
 let BIN_DIR = null;
 
+// Nome da pasta do FFmpeg por sistema e arquitetura: vendor/ffmpeg-win-x64, vendor/ffmpeg-mac-arm64...
+const EXE = process.platform === 'win32' ? '.exe' : '';
+const PLAT = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+
 function setBinDir(dir) { BIN_DIR = dir; }
 
 function binDir() {
   if (BIN_DIR) return BIN_DIR;
+  const root = path.join(__dirname, '..', '..', '..');
   const candidates = [
     process.resourcesPath && path.join(process.resourcesPath, 'ffmpeg'),
-    path.join(__dirname, '..', '..', '..', 'vendor', 'ffmpeg'),
+    path.join(root, 'vendor', `ffmpeg-${PLAT}-${process.arch}`),
+    path.join(root, 'vendor', 'ffmpeg'),
   ].filter(Boolean);
-  BIN_DIR = candidates.find((d) => fs.existsSync(path.join(d, 'ffmpeg.exe'))) || candidates[candidates.length - 1];
+  BIN_DIR = candidates.find((d) => fs.existsSync(path.join(d, `ffmpeg${EXE}`))) || candidates[candidates.length - 1];
   return BIN_DIR;
 }
 
-const ffmpegPath = () => path.join(binDir(), 'ffmpeg.exe');
-const ffprobePath = () => path.join(binDir(), 'ffprobe.exe');
+const ffmpegPath = () => path.join(binDir(), `ffmpeg${EXE}`);
+const ffprobePath = () => path.join(binDir(), `ffprobe${EXE}`);
+
+// Todo processo filho fica registrado: ao fechar o app, nenhum FFmpeg continua rodando escondido.
+const children = new Set();
+function track(p) {
+  children.add(p);
+  const drop = () => children.delete(p);
+  p.once('exit', drop);
+  p.once('error', drop);
+  return p;
+}
+function killAll() {
+  for (const p of children) {
+    try { if (p.exitCode === null) p.kill('SIGKILL'); } catch {}
+  }
+  children.clear();
+}
+const running = () => children.size;
 
 const SPAWN_OPTS = { windowsHide: true };
 
 // Roda um comando e devolve stdout como Buffer (pra pipes de imagem).
 function runBuffer(bin, args, { timeout = 120000 } = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(bin, args, SPAWN_OPTS);
+    const p = track(spawn(bin, args, SPAWN_OPTS));
     const out = [];
     let err = '';
     const t = setTimeout(() => { p.kill(); reject(new Error('Tempo esgotado')); }, timeout);
@@ -117,7 +140,7 @@ async function probe(file) {
 function runWithProgress(args, { duration = 0, onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const full = ['-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...args];
-    const p = spawn(ffmpegPath(), full, SPAWN_OPTS);
+    const p = track(spawn(ffmpegPath(), full, SPAWN_OPTS));
     let err = '';
     let buf = '';
     const onAbort = () => { try { p.kill('SIGKILL'); } catch {} };
@@ -175,8 +198,8 @@ function decodeToPng(file) {
 
 function listEncoders() {
   return new Promise((resolve) => {
-    execFile(ffmpegPath(), ['-hide_banner', '-encoders'], { ...SPAWN_OPTS, maxBuffer: 4 << 20 }, (e, out) => resolve(e ? '' : out));
+    track(execFile(ffmpegPath(), ['-hide_banner', '-encoders'], { ...SPAWN_OPTS, maxBuffer: 4 << 20 }, (e, out) => resolve(e ? '' : out)));
   });
 }
 
-module.exports = { setBinDir, binDir, ffmpegPath, ffprobePath, probe, runBuffer, runWithProgress, thumbnail, decodeToPng, listEncoders };
+module.exports = { setBinDir, binDir, ffmpegPath, ffprobePath, probe, runBuffer, runWithProgress, thumbnail, decodeToPng, listEncoders, track, killAll, running, PLAT };

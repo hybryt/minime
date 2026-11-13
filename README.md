@@ -1,6 +1,6 @@
 # MINIME
 
-Converte e encolhe imagens, vídeos e áudios no Windows. Arrasta, escolhe o formato, vê o tamanho final antes de converter.
+Converte e encolhe imagens, vídeos e áudios no **Windows** e no **Mac**. Arrasta, escolhe o formato, vê o tamanho final antes de converter.
 
 Criado por [Alan Moreira](https://alanmore.com.br).
 
@@ -11,7 +11,8 @@ Criado por [Alan Moreira](https://alanmore.com.br).
 │ pastas       │     │ "converter todos"  │     │ enquanto mexe na    │     │ ou outra     │
 └──────────────┘     └────────────────────┘     │ qualidade           │     └──────────────┘
                                                 └─────────────────────┘
-        ou: botão direito no arquivo ▶ Converter com MINIME ▶ WebP  (janela rápida)
+  Windows: botão direito no arquivo ▶ Converter com MINIME ▶ WebP  (janela rápida)
+  Mac:     botão direito no arquivo ▶ Abrir com ▶ MINIME, ou arraste até o ícone no Dock
 ```
 
 ## O que ele faz
@@ -45,23 +46,72 @@ Escolher o mesmo formato da origem só comprime (ex.: JPG pesado vira JPG leve).
 └── Áudio pra MP4: fundo com onda sonora, capa do álbum ou preto
 ```
 
-### CPU ou GPU
+### Desempenho: o MINIME se ajusta à máquina
 
-Na primeira abertura o MINIME testa os encoders de vídeo da máquina (NVIDIA NVENC, AMD AMF, Intel Quick Sync) e guarda o resultado. No modo **Automático**, H.264 e H.265 vão pra placa de vídeo quando ela funciona; WebM, AVI e GIF ficam no processador (não têm encoder de GPU comum). Imagens usam o processador com libvips, que já é multinúcleo.
+Na primeira abertura ele mede o computador e guarda o resultado (refaz só se a placa de vídeo ou o FFmpeg mudarem).
+
+```
+🖥️ Detecta
+├── Sistema e arquitetura ─▶ Windows x64, Mac Apple Silicon (arm64) ou Mac Intel (x64), todos nativos
+├── Processador ───────────▶ núcleos e memória ─▶ quantas conversões rodam juntas
+└── Placa de vídeo ────────▶ testa de verdade, codificando e decodificando um trecho
+     ├── NVIDIA (NVENC), AMD (AMF), Intel (Quick Sync) no Windows
+     └── VideoToolbox (Apple) no Mac
+
+⚙️ Usa
+├── H.264 e H.265 na GPU; WebM, AVI e GIF no processador
+├── Decodificação na GPU só onde compensa (medido num Ryzen 7 7800X3D):
+│    HEVC 4K ficou 42% mais rápido na GPU; H.264 4K ficou mais rápido no processador
+│    ─▶ processador com 8+ núcleos: GPU decodifica HEVC, AV1 e VP9
+│    ─▶ processador mais fraco: GPU decodifica tudo
+├── 2 vídeos por vez na GPU (1 no processador, que já usa todos os núcleos)
+└── Imagens e áudios em paralelo: 1 a cada 3 núcleos (de 2 a 8)
+```
+
+Se a GPU não conseguir ler algum arquivo, o MINIME tenta de novo sozinho decodificando no processador.
+
+### Não fica nada rodando escondido
+
+Fechou a janela, o MINIME cancela o que estava convertendo, encerra todo processo do FFmpeg, apaga os arquivos que ficaram pela metade e sai. Não existe processo em segundo plano pra "abrir mais rápido". A procura por atualização só acontece com o app aberto.
 
 ## Instalação
 
-1. Rode `MINIME-Setup-1.1.0.exe`. Não pede administrador (instala só pro seu usuário).
+### Windows
+
+1. Rode `MINIME-Setup-1.2.0.exe`. Não pede administrador (instala só pro seu usuário).
 2. O Windows pode mostrar "O Windows protegeu o computador", porque o instalador não tem assinatura digital paga. Clique em **Mais informações** e **Executar assim mesmo**.
-3. Pronto: atalho na área de trabalho, no menu Iniciar e o item **Converter com MINIME** no botão direito.
+3. Na tela **Preferências** do instalador, escolha se o MINIME deve se atualizar sozinho e se abre junto com o Windows.
+4. Pronto: atalho na área de trabalho, no menu Iniciar e o item **Converter com MINIME** no botão direito.
 
 > No Windows 11 o item aparece em **Mostrar mais opções** (ou com Shift + F10), junto dos menus clássicos. Dá pra ligar e desligar o menu pelo ícone de ajustes, na barra de cima do app.
 
-Pra desinstalar: Configurações ▶ Aplicativos ▶ MINIME ▶ Desinstalar. O menu do botão direito sai junto.
+Pra desinstalar: Configurações ▶ Aplicativos ▶ MINIME ▶ Desinstalar. O menu do botão direito e o início automático saem juntos.
+
+### Mac
+
+1. Baixe o DMG certo na página [Releases](https://github.com/hybryt/minime/releases/latest):
+   - `MINIME-1.2.0-mac-arm64.dmg` pra Mac com chip Apple (M1, M2, M3, M4)
+   - `MINIME-1.2.0-mac-x64.dmg` pra Mac com processador Intel
+2. Abra o DMG e arraste o MINIME pra pasta **Aplicativos**.
+3. Na primeira vez o Mac avisa que não consegue verificar o desenvolvedor (o app não tem assinatura paga da Apple). Abra **Ajustes do Sistema ▶ Privacidade e Segurança**, desça até o aviso do MINIME e clique em **Abrir Mesmo Assim**. Só precisa fazer isso uma vez.
+   - Alternativa pelo Terminal: `xattr -dr com.apple.quarantine /Applications/MINIME.app`
+4. Na tela de boas-vindas, escolha se quer atualização automática e se o MINIME abre junto com o Mac.
+
+No Finder: botão direito no arquivo ▶ **Abrir com** ▶ **MINIME**, ou arraste arquivos até o ícone no Dock.
+
+### Atualização automática
+
+```
+App abre com internet ──▶ procura versão nova no GitHub Releases ──┬─▶ Windows: baixa e instala quando você fecha
+     (e a cada 6 h enquanto aberto)                                 │    (ou clique em "Reiniciar agora")
+                                                                    └─▶ Mac: avisa e abre a página pra baixar o DMG
+```
+
+Liga e desliga em **Ajustes ▶ Atualizar automaticamente**. No Mac a instalação é manual porque a Apple só deixa um app se substituir sozinho quando ele tem assinatura paga (Developer ID).
 
 ## Rodar e compilar a partir do código
 
-Precisa de Node.js 20 ou mais novo.
+Precisa de Node.js 20 ou mais novo. O instalador do Windows sai no Windows e o do Mac sai num Mac (ou pelo GitHub Actions, abaixo).
 
 ```bash
 npm install
@@ -75,13 +125,42 @@ npm run fetch-ffmpeg
 npm start
 ```
 
-Pra gerar o instalador em `dist/`:
+Pra gerar o instalador do Windows em `dist/`:
 
 ```bash
 npm run build
 ```
 
-O `fetch-ffmpeg` baixa o build GPL "shared" do FFmpeg ([BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)) pra `vendor/ffmpeg`. Os binários não ficam no repositório.
+Num Mac, o instalador do Mac (Apple Silicon e Intel):
+
+```bash
+npm run fetch-ffmpeg -- --mac
+```
+
+```bash
+npm run build:mac
+```
+
+O `fetch-ffmpeg` baixa o FFmpeg de cada sistema pra `vendor/ffmpeg-<sistema>-<arquitetura>`: no Windows o build GPL "shared" do [BtbN](https://github.com/BtbN/FFmpeg-Builds), no Mac o build estático do [Martin Riedl](https://ffmpeg.martin-riedl.de/) (com VideoToolbox). Os binários não ficam no repositório.
+
+### Publicar uma versão nova
+
+```
+mudar "version" no package.json ──▶ commit ──▶ tag v1.2.1 ──▶ git push --tags
+                                                                     │
+        GitHub Actions (.github/workflows/release.yml) ◀─────────────┘
+        ├── máquina Windows ─▶ MINIME-Setup-1.2.1.exe + latest.yml
+        ├── máquina Mac ─────▶ DMG e ZIP arm64 e x64 + latest-mac.yml (assinatura ad-hoc conferida)
+        └── publica a Release ─▶ os apps instalados encontram a versão nova sozinhos
+```
+
+```bash
+git tag v1.2.1
+```
+
+```bash
+git push origin v1.2.1
+```
 
 Teste do motor sem interface (gera arquivos de exemplo, estima, converte e compara estimativa com o tamanho real):
 
@@ -97,18 +176,20 @@ src/
 │   ├── main.js          janelas, instância única (junta vários arquivos do botão direito), IPC
 │   ├── preload.js       ponte segura entre a tela e o motor
 │   ├── shell.js         especificação do menu do botão direito (registro do Windows)
+│   ├── updater.js       atualização pelo GitHub Releases (só com o app aberto)
 │   └── engine/
 │       ├── formats.js   o que lê, pra onde converte, rótulos e dicas
 │       ├── image.js     sharp/libvips: JPG (mozjpeg), PNG (redução de cores), WebP, AVIF, TIFF, GIF, BMP, ICO
 │       ├── av.js        FFmpeg: argumentos, estimativa de tamanho, escolha CPU/GPU
 │       ├── ffmpeg.js    execução, progresso, ffprobe, miniaturas
-│       ├── hardware.js  detecção e teste dos encoders de GPU
+│       ├── hardware.js  sistema, núcleos, memória e teste real de encoder e decoder de GPU
 │       └── jobs.js      lista, estimativa em lote, fila de conversão, nomes sem sobrescrever
 └── renderer/            interface Liquid Glass (HTML, CSS e JS puros)
 scripts/
 ├── fetch-ffmpeg.mjs     baixa o FFmpeg
 ├── make-icon.mjs        gera o ícone
-├── gen-nsis.mjs         gera o build/installer.nsh a partir do shell.js
+├── gen-nsis.mjs         gera o build/installer.nsh (menu do botão direito e tela Preferências)
+├── after-pack.cjs       no Mac, tira as bibliotecas da outra arquitetura
 └── test-engine.mjs      teste do motor
 ```
 
@@ -144,7 +225,8 @@ Linguagem inspirada no Liquid Glass da Apple (macOS Tahoe e iOS 26), adaptada pr
 ## Licenças
 
 - Código do MINIME: MIT (veja `LICENSE`).
-- FFmpeg: GPL v3, distribuído como binário separado em `resources/ffmpeg`. Código-fonte em [ffmpeg.org](https://ffmpeg.org) e [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds).
+- FFmpeg: GPL v3, distribuído como binário separado em `resources/ffmpeg`. Código-fonte em [ffmpeg.org](https://ffmpeg.org), [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) e [ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de/).
+- electron-updater: MIT.
 - sharp (Apache 2.0) com libvips (LGPL 3.0).
 - Geist: SIL Open Font License 1.1.
 - Electron: MIT.

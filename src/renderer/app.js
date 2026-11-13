@@ -5,6 +5,8 @@
   const api = window.minime;
   const MODE = new URLSearchParams(location.search).get('mode') === 'quick' ? 'quick' : 'main';
   document.documentElement.dataset.mode = MODE;
+  document.documentElement.dataset.platform = api.platform || 'win32';
+  const IS_MAC = api.platform === 'darwin';
 
   const app = document.getElementById('app');
   const popover = document.getElementById('popover');
@@ -121,6 +123,9 @@
     menuOn: null,
     version: '',
     theme: 'system',
+    prefs: null,
+    update: null,
+    system: null,
   };
   const saveSettings = () => store.save('minime.settings.v1', state.settings);
   const saveDest = () => store.save('minime.dest.v1', state.dest);
@@ -378,8 +383,20 @@
     return `<div class="dragbar"></div>
       <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}${files}
         <span class="sep"></span>
+        <span id="upd-badge">${updateBadge()}</span>
         <button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button>
       </nav>`;
+  }
+
+  function updateBadge() {
+    const u = state.update;
+    if (!u) return '';
+    if (u.status === 'ready') return `<button class="tb-btn update" data-act="prefs" title="Versão ${esc(u.version)} pronta pra instalar"><span class="live"></span>Atualizar</button>`;
+    if (u.status === 'available') return `<button class="tb-btn update" data-act="prefs" title="Versão ${esc(u.version)} disponível"><span class="live"></span>Versão nova</button>`;
+    return '';
+  }
+  function refreshBadge() {
+    for (const el of document.querySelectorAll('#upd-badge')) el.innerHTML = updateBadge();
   }
 
   function credit(cls = 'credit') {
@@ -805,7 +822,7 @@
     }
     app.innerHTML = `<div class="quick-shell">
       <div class="dragbar"></div>
-      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}<span class="sep"></span><button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button></nav>
+      <nav class="toolbar glass" data-lens="toolbar">${appIcon}${wordmark}<span class="sep"></span><span id="upd-badge">${updateBadge()}</span><button class="tb-btn icon" data-act="prefs" title="Aparência e ajustes" aria-label="Aparência e ajustes">${I.sliders}</button></nav>
       <main class="sheet glass quick">
         <div class="sheet-body"><div class="sheet-inner">${body}</div></div>
         <div class="sheet-foot">${foot}${credit('credit-line')}</div>
@@ -924,26 +941,107 @@
 
   // ---------- Aparência e ajustes (popover) ----------
 
-  async function openPrefs(anchor) {
-    closeMenu();
-    if (state.menuOn === null) { try { state.menuOn = await api.menuStatus(); } catch { state.menuOn = false; } }
-    const hw = state.hw;
-    popover.innerHTML = `<div class="prefs">
+  function updateLine() {
+    const u = state.update || {};
+    const v = esc(u.version || '');
+    switch (u.status) {
+      case 'checking': return { text: 'Procurando versão nova…' };
+      case 'latest': return { text: `Você está na versão mais recente (${esc(state.version)}).`, act: ['upd-check', 'Procurar de novo'] };
+      case 'available': return u.selfInstall
+        ? { text: `Versão ${v} disponível.`, act: ['upd-download', 'Baixar e instalar'] }
+        : { text: `Versão ${v} disponível. No Mac, baixe e arraste pra Aplicativos.`, act: ['upd-download', 'Baixar no GitHub'] };
+      case 'downloading': return { text: `Baixando a versão ${v}… ${u.percent || 0}%` };
+      case 'ready': return { text: `Versão ${v} pronta. Instala sozinha quando você fechar o MINIME.`, act: ['upd-install', 'Reiniciar agora'] };
+      case 'offline': return { text: 'Sem internet agora. Procuro de novo quando a conexão voltar.', act: ['upd-check', 'Tentar de novo'] };
+      case 'error': return { text: esc(u.error || 'Não consegui procurar atualização.'), act: ['upd-check', 'Tentar de novo'] };
+      case 'dev': return { text: 'Atualização desligada no modo de desenvolvimento.' };
+      default: return { text: `Versão ${esc(state.version)}.`, act: ['upd-check', 'Procurar agora'] };
+    }
+  }
+
+  function systemHtml() {
+    const s = state.system;
+    if (!s || !s.cpu) return '<p>Detectando o computador…</p>';
+    const arch = s.arch === 'arm64' ? 'ARM 64 bits' : '64 bits (x64)';
+    const gpu = s.h264
+      ? `Vídeo pela ${esc(s.gpuLabel)}: codifica ${s.hevc ? 'H.264 e H.265' : 'H.264'}${s.hwDecode ? `, decodifica ${s.cores >= 8 ? 'HEVC, AV1 e VP9' : 'tudo'} na placa` : ''}.`
+      : 'Vídeo pelo processador (nenhuma placa de vídeo compatível).';
+    const lanes = s.lanes ? ` Converte ${s.lanes.light} imagens ou áudios juntos e ${s.lanes.video} ${s.lanes.video > 1 ? 'vídeos' : 'vídeo'} por vez.` : '';
+    const emu = s.emulated ? ' <b>Esta cópia roda em modo de compatibilidade: instale a versão ARM pra ficar mais rápido.</b>' : '';
+    return `<p>${esc(s.os)}, ${arch}. ${esc(s.cpu)} (${s.cores} núcleos), ${s.memGB} GB de memória. ${gpu}${lanes}${emu}</p>`;
+  }
+
+  function prefsHtml() {
+    const pf = state.prefs || { autoUpdate: true, openAtLogin: false };
+    const u = updateLine();
+    const loginLabel = IS_MAC ? 'Abrir quando o Mac iniciar' : 'Abrir quando o Windows iniciar';
+    const integration = IS_MAC
+      ? '<div class="g-row"><span class="lbl"><b>No Finder</b><small>Botão direito no arquivo ▸ Abrir com ▸ MINIME, ou arraste até o ícone no Dock</small></span></div>'
+      : `<label class="g-row"><span class="lbl"><b>Menu do botão direito</b><small>"Converter com MINIME" no Explorer. No Windows 11 fica em Mostrar mais opções.</small></span>
+          <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''} aria-label="Menu do botão direito"><i></i></span></label>`;
+    return `<div class="prefs">
       <div class="p-head"><img class="appicon" src="assets/icon.png" alt=""><div><b>MINIME</b><small>Versão ${esc(state.version)}. Converte e encolhe imagens, vídeos e áudios.</small></div></div>
       <div class="sect">Aparência</div>
       ${seg('theme', THEMES.map(([v, l, icon]) => [v, l, false, '', icon]), state.theme)}
+      <div class="sect">Atualização e inicialização</div>
       <div class="group rows">
-        <label class="g-row"><span class="lbl"><b>Menu do botão direito</b><small>"Converter com MINIME" no Explorer</small></span>
-          <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''} aria-label="Menu do botão direito"><i></i></span></label>
-        <div class="g-row"><span class="lbl"><b>Motor de vídeo</b><small>${hw ? esc(hw.h264 ? `${hw.gpuLabel} (${hw.h264.split('_')[1].toUpperCase()})` : hw.cpu) : 'detectando…'}</small></span></div>
+        <label class="g-row"><span class="lbl"><b>Atualizar automaticamente</b><small>${IS_MAC ? 'Procura versão nova no GitHub e avisa' : 'Baixa a versão nova e instala ao fechar'}</small></span>
+          <span class="switch"><input type="checkbox" data-check="pref.autoUpdate" ${pf.autoUpdate ? 'checked' : ''} aria-label="Atualizar automaticamente"><i></i></span></label>
+        <div class="g-row upd"><span class="lbl"><small id="upd-text">${u.text}</small></span>${u.act ? `<button class="btn small" data-act="${u.act[0]}">${u.act[1]}</button>` : ''}</div>
+        <label class="g-row"><span class="lbl"><b>${loginLabel}</b><small>Desligado, o MINIME só roda quando você abre</small></span>
+          <span class="switch"><input type="checkbox" data-check="pref.openAtLogin" ${pf.openAtLogin ? 'checked' : ''} aria-label="${loginLabel}"><i></i></span></label>
       </div>
-      <p>No Windows 11 o menu aparece em <b>Mostrar mais opções</b> (ou Shift + F10). Imagens: libvips com mozjpeg. Vídeo e áudio: FFmpeg.</p>
+      <div class="sect">Integração</div>
+      <div class="group rows">${integration}</div>
+      <div class="sect">Este computador</div>
+      <div class="group">${systemHtml()}</div>
+      <p>Ao fechar a janela, o MINIME para tudo na hora: nenhum processo fica rodando escondido.</p>
       <div class="credit-line">${credit()}</div>
     </div>`;
+  }
+
+  async function openPrefs(anchor) {
+    closeMenu();
+    if (state.menuOn === null && !IS_MAC) { try { state.menuOn = await api.menuStatus(); } catch { state.menuOn = false; } }
+    try { state.prefs = await api.getPrefs(); state.update = state.prefs.update; } catch {}
+    if (!state.system || !state.system.lanes) { try { state.system = await api.system(); } catch {} }
+    popover.innerHTML = prefsHtml();
     popover.classList.add('prefs-pop');
-    showPopover(anchor, 320, true);
+    showPopover(anchor, 340, true);
     menu = { prefs: true, anchor };
     flushSegs();
+  }
+  function refreshPrefs() {
+    if (!(menu && menu.prefs)) return;
+    const scroll = popover.scrollTop;
+    popover.innerHTML = prefsHtml();
+    popover.scrollTop = scroll;
+  }
+
+  // ---------- Boas-vindas (primeiro uso) ----------
+
+  function showWelcome() {
+    if (MODE !== 'main' || document.getElementById('welcome')) return;
+    const pf = state.prefs || { autoUpdate: true, openAtLogin: false };
+    const loginLabel = IS_MAC ? 'Abrir quando o Mac iniciar' : 'Abrir quando o Windows iniciar';
+    const el = document.createElement('div');
+    el.id = 'welcome';
+    el.className = 'welcome-backdrop';
+    el.innerHTML = `<section class="welcome glass" data-lens="welcome" role="dialog" aria-modal="true" aria-labelledby="w-title">
+      <img class="appicon" src="assets/icon.png" alt="">
+      <h2 id="w-title">Bem-vindo ao MINIME</h2>
+      <p>Duas escolhas rápidas. Dá pra mudar depois no ícone de ajustes.</p>
+      <div class="group rows">
+        <label class="g-row"><span class="lbl"><b>Atualizar automaticamente</b><small>Procura a versão mais nova no GitHub sempre que o app abre com internet</small></span>
+          <span class="switch"><input type="checkbox" data-check="pref.autoUpdate" ${pf.autoUpdate ? 'checked' : ''} aria-label="Atualizar automaticamente"><i></i></span></label>
+        <label class="g-row"><span class="lbl"><b>${loginLabel}</b><small>Desligado, o MINIME só roda quando você abre</small></span>
+          <span class="switch"><input type="checkbox" data-check="pref.openAtLogin" ${pf.openAtLogin ? 'checked' : ''} aria-label="${loginLabel}"><i></i></span></label>
+      </div>
+      <button class="btn primary" data-act="welcome-done">Começar</button>
+    </section>`;
+    document.body.appendChild(el);
+    refreshLenses(el);
+    el.querySelector('[data-act="welcome-done"]').focus({ preventScroll: true });
   }
 
   function waitForScheme() {
@@ -1037,7 +1135,7 @@
       onSeg(host.dataset.seg, segBtn.dataset.v, host);
       return;
     }
-    if (inPrefs && !e.target.closest('[data-act="site"]')) return;
+    if (inPrefs && !e.target.closest('[data-act]')) return;
 
     const act = e.target.closest('[data-act]');
     if (!act || act.disabled) return;
@@ -1070,6 +1168,15 @@
       case 'site': api.openSite(); break;
       case 'prefs': if (menu && menu.prefs) closeMenu(); else openPrefs(act); break;
       case 'full': api.openFull(state.items.map((i) => i.path)); break;
+      case 'upd-check': state.update = await api.checkUpdate(true); refreshPrefs(); refreshBadge(); break;
+      case 'upd-download': state.update = await api.downloadUpdate(); refreshPrefs(); break;
+      case 'upd-install': state.update = await api.installUpdate(); refreshPrefs(); break;
+      case 'welcome-done': {
+        state.prefs = await api.setPrefs({ firstRunDone: true });
+        const w = document.getElementById('welcome');
+        if (w) w.remove();
+        break;
+      }
       case 'close': api.close(); break;
       default: break;
     }
@@ -1153,6 +1260,15 @@
       return;
     }
     const [kind, key] = c.dataset.check.split('.');
+    if (kind === 'pref') {
+      c.disabled = true;
+      try { state.prefs = await api.setPrefs({ [key]: c.checked }); } catch {}
+      c.checked = !!(state.prefs && state.prefs[key]);
+      c.disabled = false;
+      for (const other of document.querySelectorAll(`[data-check="${c.dataset.check}"]`)) other.checked = c.checked;
+      if (key === 'openAtLogin') toast(c.checked ? 'O MINIME vai abrir junto com o computador.' : 'O MINIME só abre quando você abrir.');
+      return;
+    }
     state.settings[kind][key] = c.checked;
     saveSettings();
     scheduleEstimate(0);
@@ -1190,6 +1306,9 @@
     addPaths(files.map((f) => api.pathForFile(f)).filter(Boolean));
   });
 
+  // Testes automatizados pulam a tela de boas-vindas.
+  function process_env_skip() { return /[?&]nowelcome=1/.test(location.search); }
+
   // ---------- Início ----------
 
   (async () => {
@@ -1204,6 +1323,18 @@
     });
     render();
     api.info().then((i) => { state.version = i.version; });
+    api.onUpdate((u) => {
+      state.update = u;
+      refreshBadge();
+      if (menu && menu.prefs) { const t = document.getElementById('upd-text'); if (t && u.status === 'downloading') t.textContent = updateLine().text; else refreshPrefs(); }
+      if (u.status === 'ready' && u.selfInstall) toast(`Versão ${u.version} pronta. Instala quando você fechar o MINIME.`, 5000);
+    });
+    window.addEventListener('online', () => api.checkUpdate(false));
+    api.getPrefs().then((pf) => {
+      state.prefs = pf; state.update = pf.update; refreshBadge();
+      if (!pf.firstRunDone && MODE === 'main' && !process_env_skip()) showWelcome();
+    }).catch(() => {});
+    api.system().then((sys) => { state.system = sys; }).catch(() => {});
     api.hardware().then((hw) => { state.hw = hw; renderSettings(); }).catch(() => {});
     const l = await api.getLaunch();
     if (l.mode === 'quick') state.quickTarget = l.target;

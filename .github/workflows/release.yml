@@ -20,8 +20,8 @@ jobs:
     name: Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -36,16 +36,18 @@ jobs:
     name: Mac (Apple Silicon e Intel)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: sharp da versão Intel (a máquina do GitHub é Apple Silicon)
         run: |
-          VIPS=$(node -p "require('sharp/package.json').optionalDependencies['@img/sharp-libvips-darwin-x64']")
-          SHARP=$(node -p "require('sharp/package.json').version")
+          PKG=node_modules/sharp/package.json
+          VIPS=$(node -p "JSON.parse(require('fs').readFileSync('$PKG','utf8')).optionalDependencies['@img/sharp-libvips-darwin-x64']")
+          SHARP=$(node -p "JSON.parse(require('fs').readFileSync('$PKG','utf8')).version")
+          echo "sharp $SHARP, libvips $VIPS"
           npm install --no-save --force "@img/sharp-darwin-x64@$SHARP" "@img/sharp-libvips-darwin-x64@$VIPS"
       - run: npm run fetch-ffmpeg -- --mac
       - run: node scripts/make-icon.mjs
@@ -71,7 +73,7 @@ jobs:
     needs: [windows, mac]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Tirar do rascunho
         run: |
           TAG="v$(node -p "require('./package.json').version")"

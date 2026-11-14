@@ -16,8 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Cria o rascunho da Release antes dos builds. Sem isso, Windows e Mac criavam cada um a sua
+  # ao mesmo tempo e a publicação podia pegar a errada (aconteceu na 1.2.0 e na 1.3.0).
+  rascunho:
+    name: Criar o rascunho da Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name==\"$TAG\") | .id" | head -1)
+          if [ -z "$ID" ]; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "MINIME $TAG" --notes "Em preparação."
+          else
+            echo "Já existe uma Release $TAG (id $ID): os builds enviam pra ela."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   windows:
     name: Windows x64
+    needs: rascunho
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -35,6 +54,7 @@ jobs:
 
   mac:
     name: Mac (Apple Silicon e Intel)
+    needs: rascunho
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -81,11 +101,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Tirar do rascunho
+      - name: Conferir os arquivos e tirar do rascunho
         run: |
           TAG="v$(node -p "require('./package.json').version")"
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest \
-            --title "MINIME $TAG" \
-            --notes "Windows: MINIME-Setup-*.exe (instalador) ou MINIME-Portatil-*.exe (roda sem instalar). Mac (MINIME-*-mac-arm64.dmg pra Apple Silicon, MINIME-*-mac-x64.dmg pra Intel). Veja o README pra liberar o app no Mac na primeira abertura."
+          REL=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq "[.[] | select(.tag_name==\"$TAG\")]")
+          COUNT=$(echo "$REL" | jq 'length')
+          [ "$COUNT" = "1" ] || { echo "Esperava 1 Release $TAG e achei $COUNT"; exit 1; }
+          ID=$(echo "$REL" | jq '.[0].id')
+          NAMES=$(echo "$REL" | jq -r '.[0].assets[].name')
+          echo "$NAMES"
+          for f in latest.yml latest-mac.yml "MINIME-Setup-${TAG#v}.exe" "MINIME-${TAG#v}-mac-arm64.zip" "MINIME-${TAG#v}-mac-x64.zip"; do
+            echo "$NAMES" | grep -qx "$f" || { echo "Falta $f na Release"; exit 1; }
+          done
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true \
+            -f name="MINIME $TAG" \
+            -f body="Windows: MINIME-Setup-*.exe (instalador) ou MINIME-Portatil-*.exe (roda sem instalar). Mac (MINIME-*-mac-arm64.dmg pra Apple Silicon, MINIME-*-mac-x64.dmg pra Intel). Veja o README pra liberar o app no Mac na primeira abertura." \
+            --jq '"Publicada: \(.html_url)"'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

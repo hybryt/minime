@@ -5,6 +5,16 @@
 !include MUI2.nsh
 !include nsDialogs.nsh
 !include LogicLib.nsh
+!include FileFunc.nsh
+
+; Texto do alto da tela de pasta (o mesmo volta quando a pasta escolhida é válida).
+!define MINIME_DIR_TEXT "O MINIME será instalado na pasta abaixo, só pro seu usuário e sem pedir senha de administrador. Pra usar outra, clique em Procurar e escolha uma pasta sua."
+!define MUI_DIRECTORYPAGE_TEXT_TOP "${MINIME_DIR_TEXT}"
+
+; Instala sempre só pro usuário: a tela "Para quem instalar" tinha uma opção só (a outra pede administrador).
+!macro customInstallMode
+  StrCpy $isForceCurrentInstall "1"
+!macroend
 
 !ifndef BUILD_UNINSTALLER
   Var MinimeMenuOff
@@ -37,6 +47,103 @@
   Function MinimePrefsLeave
     ${NSD_GetState} $MinimeAutoCtl $MinimeAuto
     ${NSD_GetState} $MinimeLoginCtl $MinimeLogin
+  FunctionEnd
+
+  Var MinimeDirChecked
+  Var MinimeDirOk
+
+  ; Tela de pasta: o instalador roda sem administrador, então só aceita pasta onde o usuário consegue gravar.
+  ; Antes, escolher Arquivos de Programas terminava com arquivo faltando e atalho quebrado.
+  ; O NSIS chama esta função a cada mudança no campo (Abort trava o Próximo); o teste no disco
+  ; só roda de novo quando muda a pasta testada.
+  Function .onVerifyInstDir
+    Push $0
+    Push $1
+    Push $2
+    Push $3
+    ; Sobe até a primeira pasta que já existe: é nela que o instalador cria a dele.
+    StrCpy $0 $INSTDIR
+    ${Do}
+      StrCpy $1 $0 1 -1
+      ${If} $1 == "\"
+        StrCpy $0 $0 -1
+      ${ElseIf} $0 == ""
+        ${Break}
+      ${ElseIf} ${FileExists} "$0\*.*"
+        ${Break}
+      ${Else}
+        ${GetParent} $0 $1
+        ${If} $1 == $0
+          StrCpy $1 ""
+        ${EndIf}
+        StrCpy $0 $1
+      ${EndIf}
+    ${Loop}
+
+    ${If} $0 == ""
+      StrCpy $2 "-1"
+    ${ElseIf} $0 == $MinimeDirChecked
+      StrCpy $2 $MinimeDirOk
+    ${Else}
+      ; Cria uma pasta e um arquivo de teste, do jeito que a instalação faz (C:\ deixa criar pasta mas não arquivo).
+      StrCpy $2 "0"
+      System::Call 'kernel32::GetTickCount()i.r1'
+      StrCpy $1 "$0\~minime-teste-$1"
+      ClearErrors
+      CreateDirectory "$1"
+      ${IfNot} ${Errors}
+        FileOpen $3 "$1\gravar.tmp" w
+        ${IfNot} ${Errors}
+          FileClose $3
+          Delete "$1\gravar.tmp"
+          StrCpy $2 "1"
+        ${EndIf}
+        RMDir "$1"
+      ${EndIf}
+      StrCpy $MinimeDirChecked $0
+      StrCpy $MinimeDirOk $2
+    ${EndIf}
+
+    ; A tela de pasta virou a primeira (a de modo pula sozinha): sem isso, "Voltar" fecharia o instalador.
+    ; O NSIS mostra o botão de novo nas telas seguintes.
+    ${If} $HWNDPARENT <> 0
+      GetDlgItem $1 $HWNDPARENT 3
+      ShowWindow $1 ${SW_HIDE}
+    ${EndIf}
+
+    ; O motivo aparece no texto do alto da tela (controle 1006 da página de pasta), em vermelho.
+    FindWindow $1 "#32770" "" $HWNDPARENT
+    ${If} $1 <> 0
+      GetDlgItem $1 $1 1006
+    ${EndIf}
+    ${If} $1 <> 0
+      ${If} $2 == "1"
+        SetCtlColors $1 SYSCLR:8 SYSCLR:15
+        SendMessage $1 ${WM_SETTEXT} 0 "STR:${MINIME_DIR_TEXT}"
+      ${Else}
+        ${If} $2 == "-1"
+          StrCpy $3 "Essa unidade não existe neste computador. Escolha uma pasta numa unidade que exista, como $LOCALAPPDATA\Programs\MINIME."
+        ${Else}
+          StrCpy $3 "Essa pasta só aceita gravação com permissão de administrador, e o MINIME instala sem pedir senha. Escolha uma pasta sua, como $LOCALAPPDATA\Programs\MINIME."
+        ${EndIf}
+        ; a cor vem antes do texto: é a troca de texto que redesenha
+        SetCtlColors $1 0xC42B1C SYSCLR:15
+        SendMessage $1 ${WM_SETTEXT} 0 "STR:$3"
+      ${EndIf}
+    ${EndIf}
+
+    ${If} $2 == "1"
+      Pop $3
+      Pop $2
+      Pop $1
+      Pop $0
+    ${Else}
+      Pop $3
+      Pop $2
+      Pop $1
+      Pop $0
+      Abort
+    ${EndIf}
   FunctionEnd
 !endif
 

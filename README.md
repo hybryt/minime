@@ -123,7 +123,7 @@ Fechou a janela, o MINIME cancela o que estava convertendo, encerra todo process
 
 ### Windows
 
-1. Rode `MINIME-Setup-1.3.0.exe`. Não pede administrador (instala só pro seu usuário).
+1. Rode `MINIME-Setup-1.3.1.exe`. Não pede administrador (instala só pro seu usuário). Dá pra trocar a pasta por uma sua, como `D:\Programas`; pasta do sistema, como Arquivos de Programas, fica bloqueada com o aviso em vermelho, porque só aceita gravação com administrador.
 2. O Windows pode mostrar "O Windows protegeu o computador", porque o instalador não tem assinatura digital paga. Clique em **Mais informações** e **Executar assim mesmo**.
 3. Na tela **Preferências** do instalador, escolha se o MINIME deve se atualizar sozinho e se abre junto com o Windows.
 4. Pronto: atalho na área de trabalho, no menu Iniciar e o item **Converter com MINIME** no botão direito.
@@ -147,8 +147,8 @@ No Mac dá pra testar abrindo o MINIME direto de dentro do DMG, sem arrastar pra
 ### Mac
 
 1. Baixe o DMG certo na página [Releases](https://github.com/hybryt/minime/releases/latest):
-   - `MINIME-1.3.0-mac-arm64.dmg` pra Mac com chip Apple (M1, M2, M3, M4)
-   - `MINIME-1.3.0-mac-x64.dmg` pra Mac com processador Intel
+   - `MINIME-1.3.1-mac-arm64.dmg` pra Mac com chip Apple (M1, M2, M3, M4)
+   - `MINIME-1.3.1-mac-x64.dmg` pra Mac com processador Intel
 2. Abra o DMG e arraste o MINIME pra pasta **Aplicativos**.
 3. Na primeira vez o Mac avisa que não consegue verificar o desenvolvedor (o app não tem assinatura paga da Apple). Abra **Ajustes do Sistema ▶ Privacidade e Segurança**, desça até o aviso do MINIME e clique em **Abrir Mesmo Assim**. Só precisa fazer isso uma vez.
    - Alternativa pelo Terminal: `xattr -dr com.apple.quarantine /Applications/MINIME.app`
@@ -216,9 +216,10 @@ O `fetch-upscale` baixa o motor de IA pra `vendor/upscale-<sistema>-<arquitetura
 mudar "version" no package.json ──▶ commit ──▶ tag v1.2.1 ──▶ git push --tags
                                                                      │
         GitHub Actions (.github/workflows/release.yml) ◀─────────────┘
+        ├── cria 1 rascunho da Release (os 2 builds enviam pra ele)
         ├── máquina Windows ─▶ MINIME-Setup-1.2.1.exe + latest.yml
         ├── máquina Mac ─────▶ DMG e ZIP arm64 e x64 + latest-mac.yml (assinatura ad-hoc conferida)
-        └── publica a Release ─▶ os apps instalados encontram a versão nova sozinhos
+        └── confere os arquivos e publica ─▶ os apps instalados encontram a versão nova sozinhos
 ```
 
 ```bash

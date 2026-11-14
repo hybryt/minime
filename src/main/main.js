@@ -3,13 +3,16 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme, Menu, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const jobs = require('./engine/jobs');
 const ff = require('./engine/ffmpeg');
 const updater = require('./updater');
 const hardware = require('./engine/hardware');
 const F = require('./engine/formats');
 const shellMenu = require('./shell');
+const presets = require('./presets');
+const decode = require('./engine/decode');
+const upscale = require('./engine/upscale');
 
 const SITE = 'https://alanmore.com.br';
 const RENDERER = path.join(__dirname, '..', 'renderer', 'index.html');
@@ -34,14 +37,20 @@ app.on('open-file', (e, file) => {
 });
 
 // ---------- Argumentos ----------
-// MINIME.exe --quick webp "C:\foto.jpg"   (menu do botão direito)
-// MINIME.exe --open "C:\foto.jpg"         (Mais opções / Abrir com)
+// MINIME.exe --preset img-jpg "C:\foto.jpg"  (atalho de 1 clique do botão direito: converte sozinho)
+// MINIME.exe --quick webp "C:\foto.jpg"     (Mais formatos: janela rápida pra ajustar e converter)
+// MINIME.exe --open "C:\foto.jpg"           (Abrir no MINIME / Abrir com)
 function parseArgs(argv) {
   const args = argv.slice(app.isPackaged ? 1 : 2);
-  const out = { mode: null, target: null, files: [] };
+  const out = { mode: null, target: null, preset: null, files: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--quick') { out.mode = 'quick'; out.target = String(args[++i] || '').toLowerCase(); continue; }
+    if (a === '--preset') {
+      const p = presets.get(args[++i]);
+      if (p) { out.mode = 'quick'; out.preset = p.id; out.target = `preset:${p.id}`; }
+      continue;
+    }
     if (a === '--open') { out.mode = out.mode || 'open'; continue; }
     if (a === '--login') { out.login = true; continue; }
     if (a === '--register-shell') { out.mode = 'register'; continue; }
@@ -67,7 +76,9 @@ if (launch.mode === 'register' || launch.mode === 'unregister') {
   app.exit(0);
 } else {
   app.on('second-instance', (_e, argv, _cwd, data) => {
-    handleLaunch(data && data.launch ? data.launch : parseArgs(argv));
+    // Se o segundo processo não achou os arquivos (caminho relativo, permissão do Mac), tenta de novo por aqui.
+    const l = data && data.launch;
+    handleLaunch(l && (l.files.length || !l.mode) ? l : parseArgs(argv));
   });
   app.whenReady().then(start);
 }
@@ -183,12 +194,14 @@ function createMainWindow(files = [], { minimized = false } = {}) {
   return mainWin;
 }
 
-function createQuickWindow(target, files) {
+function createQuickWindow(target, files, preset) {
   const win = new BrowserWindow(baseOptions({
     width: 480, height: 660, resizable: false, maximizable: false, fullscreenable: false, title: 'MINIME',
   }));
   const id = win.webContents.id;
-  pending.set(id, { mode: 'quick', target, files });
+  pending.set(id, { mode: 'quick', target: preset ? null : target, preset: preset || null, files });
+  // Mac: aberto pelo Finder (Ações Rápidas) a janela precisa vir pra frente.
+  if (IS_MAC) win.once('ready-to-show', () => { try { app.focus({ steal: true }); } catch {} });
   quickWins.set(id, { win, target, createdAt: Date.now(), started: false });
   harden(win);
   win.loadFile(RENDERER, { query: { mode: 'quick' } });
@@ -199,7 +212,10 @@ function createQuickWindow(target, files) {
 function handleLaunch(l) {
   if (!l) return;
   if (l.mode === 'quick' && l.files.length) {
-    const recent = [...quickWins.values()].find((q) => q.target === l.target && !q.started && Date.now() - q.createdAt < 4000 && !q.win.isDestroyed());
+    // Atalho de 1 clique começa sozinho em menos de 1 s: processo atrasado do Explorer entra na mesma janela
+    // (a tela guarda e converte logo depois). "Mais formatos" espera o usuário, então só junta antes de começar.
+    const preset = String(l.target || '').startsWith('preset:');
+    const recent = [...quickWins.values()].find((q) => q.target === l.target && (!q.started || preset) && Date.now() - q.createdAt < 4000 && !q.win.isDestroyed());
     if (recent) {
       recent.createdAt = Date.now();
       const id = recent.win.webContents.id;
@@ -209,7 +225,7 @@ function handleLaunch(l) {
       recent.win.focus();
       return;
     }
-    createQuickWindow(l.target, l.files);
+    createQuickWindow(l.target, l.files, l.preset);
     return;
   }
   createMainWindow(l.files, { minimized: !!l.login && !l.files.length });
@@ -263,13 +279,99 @@ function broadcast(channel, data) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, data);
 }
 
+// ---------- Atalhos de 1 clique (menu do Windows e Ações Rápidas do Mac) ----------
+
+const menuPrefs = () => presets.normalizeMenu(readPrefs().menuPresets);
+const macServices = () => require('./mac-services');
+
+// Itens das Ações Rápidas: os mesmos atalhos do menu do Windows, mais "Abrir no MINIME".
+// O Finder liga e desliga cada item pelo título: título repetido entre tipos ganha o tipo no fim.
+const CAT_TITLE = { image: 'imagem', video: 'vídeo', audio: 'áudio' };
+function macItems(menu) {
+  const items = [];
+  const count = new Map();
+  for (const cat of presets.CATS) for (const id of menu[cat]) { const l = presets.get(id).label; count.set(l, (count.get(l) || 0) + 1); }
+  for (const cat of presets.CATS) {
+    for (const id of menu[cat]) {
+      const p = presets.get(id);
+      const title = count.get(p.label) > 1 ? `${p.label} (${CAT_TITLE[cat]})` : p.label;
+      items.push({ id: p.id, title, category: cat, args: ['--preset', p.id] });
+    }
+  }
+  items.push({ id: 'open', title: 'Abrir no MINIME', category: 'any', args: ['--open'] });
+  return items;
+}
+// Extensões que o Mac às vezes não reconhece como vídeo ou áudio (.mkv, .webm, .opus sem VLC instalado).
+function macExtensions() {
+  return { image: F.IMAGE_IN, video: F.VIDEO_IN.filter((e) => e !== 'ts'), audio: F.AUDIO_IN };
+}
+function macAppPath() {
+  // .../MINIME.app/Contents/MacOS/MINIME -> .../MINIME.app
+  const i = process.execPath.indexOf('.app/');
+  return i > 0 ? process.execPath.slice(0, i + 4) : null;
+}
+function macInstall(menu) {
+  const appPath = macAppPath();
+  const inApps = typeof app.isInApplicationsFolder === 'function' ? app.isInApplicationsFolder() : true;
+  if (!appPath || !inApps || appPath.includes('/AppTranslocation/')) {
+    throw new Error('Arraste o MINIME pra pasta Aplicativos e abra de lá pra ativar as Ações Rápidas.');
+  }
+  macServices().install({ appPath, items: macItems(menu), extensions: macExtensions() });
+  writePrefs({ macServicesVersion: app.getVersion() });
+}
+
+// Grava o estado do menu pro instalador respeitar numa atualização (Menu=0: o usuário desligou).
+function rememberMenuChoice(on) {
+  writePrefs({ menuOn: !!on });
+  if (!IS_WIN || !app.isPackaged || PORTABLE_EXE) return;
+  execFile('reg.exe', ['add', 'HKCU\\Software\\MINIME', '/v', 'Menu', '/t', 'REG_DWORD', '/d', on ? '1' : '0', '/f'], { windowsHide: true }, () => {});
+}
+
+async function menuStatus() {
+  if (IS_WIN) return shellMenu.isRegistered();
+  if (IS_MAC) { try { return macServices().isInstalled(); } catch { return false; } }
+  return null;
+}
+async function setMenu(on) {
+  if (IS_WIN) {
+    if (on) await shellMenu.register(shellCommand(), menuPrefs()); else await shellMenu.unregister();
+  } else if (IS_MAC) {
+    if (on) macInstall(menuPrefs()); else macServices().uninstall();
+  }
+  rememberMenuChoice(on);
+  return menuStatus();
+}
+
+// Ao abrir: troca o menu antigo (1.2) pelo novo, regrava atalhos personalizados que o instalador repôs
+// e corrige o caminho do executável se o app mudou de pasta. Mac: atualiza as Ações Rápidas.
+async function syncMenu() {
+  try {
+    if (IS_WIN && app.isPackaged && !PORTABLE_EXE) {
+      const st = await shellMenu.registrationState();
+      const p = readPrefs();
+      if (!st) return;
+      const cmd = shellCommand();
+      if (st === 'old' || !(await shellMenu.commandMatches(cmd))) await shellMenu.register(cmd, menuPrefs());
+      else if (p.menuPresets) await shellMenu.applyPresets(cmd, menuPrefs());
+    } else if (IS_MAC && app.isPackaged) {
+      const p = readPrefs();
+      // Primeira abertura (ou versão nova): liga as Ações Rápidas. Dá pra desligar nas Preferências.
+      if (p.menuOn === false) return;
+      if (p.macServicesVersion === app.getVersion() && macServices().isInstalled()) return;
+      try { macInstall(menuPrefs()); if (p.menuOn === undefined) writePrefs({ menuOn: true }); } catch {}
+    }
+  } catch (e) { console.log('syncMenu', e && e.message); }
+}
+
 function start() {
   started = true;
   Menu.setApplicationMenu(appMenu());
   const prefs = prefsInit();
   applyTheme(prefs.theme);
   if (process.env.MINIME_THEME) nativeTheme.themeSource = process.env.MINIME_THEME;
+  decode.purgeOld();
   getHardware();
+  setTimeout(syncMenu, 1500);
   updater.init({ autoUpdate: prefs.autoUpdate !== false, onState: (st) => broadcast('update:state', st) });
   const files = [...launch.files, ...openQueue.splice(0)];
   handleLaunch(launch.mode ? { ...launch, files } : { mode: 'open', files, login: launch.login });
@@ -296,18 +398,21 @@ app.on('before-quit', (e) => {
     jobs.cancelAll();
     ff.killAll();
     const t0 = Date.now();
+    upscale.killAll();
     const wait = () => {
-      if (jobs.busyCount() === 0 || Date.now() - t0 > 3000) { ff.killAll(); jobs.cleanupPartials(); app.quit(); }
+      if (jobs.busyCount() === 0 || Date.now() - t0 > 3000) { ff.killAll(); upscale.killAll(); jobs.cleanupPartials(); app.quit(); }
       else setTimeout(wait, 40);
     };
     wait();
     return;
   }
   ff.killAll();
+  upscale.killAll();
   jobs.cleanupPartials();
 });
-app.on('will-quit', () => { ff.killAll(); jobs.cleanupPartials(); });
-process.on('exit', () => ff.killAll());
+// Tudo que é temporário some junto: quadros de vídeo, fotos ampliadas, HEIC e RAW decodificados.
+app.on('will-quit', () => { ff.killAll(); upscale.killAll(); jobs.cleanupPartials(); decode.cleanup(); decode.cleanupWork(); });
+process.on('exit', () => { ff.killAll(); upscale.killAll(); });
 
 // ---------- IPC ----------
 
@@ -317,8 +422,20 @@ const keyOf = (e) => String(e.sender.id);
 ipcMain.handle('launch:get', (e) => {
   const p = pending.get(e.sender.id) || { mode: 'main', target: null, files: [] };
   p.delivered = true;
-  return { mode: p.mode, target: p.target, files: p.files.slice() };
+  return { mode: p.mode, target: p.target, preset: p.preset ? presets.get(p.preset) : null, files: p.files.slice() };
 });
+
+ipcMain.handle('presets:get', () => ({ list: presets.publicList(), menu: menuPrefs(), defaults: presets.DEFAULT_MENU, max: presets.MAX_PER_CAT }));
+ipcMain.handle('presets:set', async (_e, menu) => {
+  const next = presets.normalizeMenu(menu);
+  writePrefs({ menuPresets: next });
+  if (await menuStatus()) {
+    if (IS_WIN) await shellMenu.applyPresets(shellCommand(), next);
+    else if (IS_MAC) { try { macInstall(next); } catch {} }
+  }
+  return next;
+});
+ipcMain.handle('app:ai', () => upscale.available());
 
 ipcMain.handle('files:add', (_e, paths) => jobs.addPaths(Array.isArray(paths) ? paths : []));
 ipcMain.handle('files:remove', (_e, ids) => jobs.remove(ids || []));
@@ -399,13 +516,9 @@ ipcMain.handle('update:check', (_e, manual) => updater.check(!!manual));
 ipcMain.handle('update:download', () => updater.download());
 ipcMain.handle('update:install', () => { if (jobs.busyCount() === 0) updater.install(); return updater.getState(); });
 
-// O menu do botão direito pelo registro é só do Windows. No Mac o caminho é "Abrir com" no Finder.
-ipcMain.handle('menu:status', () => (IS_WIN ? shellMenu.isRegistered() : null));
-ipcMain.handle('menu:set', async (_e, on) => {
-  if (!IS_WIN) return null;
-  if (on) await shellMenu.register(shellCommand()); else await shellMenu.unregister();
-  return shellMenu.isRegistered();
-});
+// Windows: menu do botão direito pelo registro. Mac: Ações Rápidas do Finder.
+ipcMain.handle('menu:status', () => menuStatus());
+ipcMain.handle('menu:set', (_e, on) => setMenu(!!on));
 
 ipcMain.handle('window:openFull', (e, paths) => {
   createMainWindow(Array.isArray(paths) ? paths : []);

@@ -1,15 +1,24 @@
 'use strict';
 // Conversão de imagens com sharp (libvips): mozjpeg, PNG com redução de cores, WebP, AVIF, TIFF, GIF.
-// BMP e ICO são lidos via FFmpeg e escritos aqui mesmo.
+// HEIC, JPEG XL, PSD, BMP, ICO e RAW entram por engine/decode.js. BMP e ICO são escritos aqui mesmo.
+// "Aumentar com IA" (engine/upscale.js) troca a entrada pela foto ampliada antes de codificar.
 const fs = require('node:fs');
 const sharp = require('sharp');
 const ff = require('./ffmpeg');
+const decode = require('./decode');
+const F = require('./formats');
+const upscale = require('./upscale');
 
 sharp.cache(false);
 
-const SHARP_CANT_READ = new Set(['bmp', 'ico']);
-
 function lossless(s) { return s.objective === 'lossless'; }
+const upscaleOn = (s) => !!(s && s.upscale && s.upscale !== 'off');
+// A IA só entra quando a imagem ainda cabe crescer: foto que já está em 4K converte normal, sem aumentar.
+// SVG (vetor, já amplia sem perder) e GIF ou WebP animado (a animação viraria uma foto parada) ficam de fora.
+const aiCandidate = (info) => !!info && !info.vector && !(info.pages > 1);
+// IA ligada e rodando neste computador (a tela desliga o modo que não roda; o motor faz igual).
+const aiEffective = (s) => upscaleOn(s) && upscale.modeAvailable(s.upscale === 'max' ? 'max' : 'standard');
+const aiApplies = (info, s) => aiEffective(s) && aiCandidate(info) && !!upscale.targetDims(info.width, info.height, s.upscaleSize);
 
 // Qual parte das opções vale pra cada destino (a tela usa isso pra travar o slider).
 function capabilities(target, s) {
@@ -21,19 +30,41 @@ function capabilities(target, s) {
 
 async function probeImage(file, ext) {
   const size = fs.statSync(file).size;
-  if (SHARP_CANT_READ.has(ext)) {
+  if (ext === 'bmp' || ext === 'ico') {
     const info = await ff.probe(file);
     const v = info.video || {};
     return { width: v.width || 0, height: v.height || 0, pages: 1, hasAlpha: true, size, orientation: 1 };
   }
-  const m = await sharp(file, { failOn: 'none', limitInputPixels: false, density: ext === 'svg' ? 192 : undefined }).metadata();
+  // RAW: tamanho da prévia, sem gravar nada no disco.
+  const c = F.canonical(ext);
+  if (F.isRaw(c)) {
+    const r = await decode.rawPreview(file);
+    return { width: r.width, height: r.height, pages: 1, hasAlpha: false, size, orientation: 1 };
+  }
+  // HEIC, JXL e PSD: tamanho pelo ffprobe (decodificar 1.000 fotos do iPhone na entrada lotaria o disco).
+  if (F.viaFfmpeg(c)) {
+    try {
+      const p = await ff.probeStill(file);
+      if (p.width && p.height) return { width: p.width, height: p.height, pages: 1, hasAlpha: c === 'psd' || p.alpha, size, orientation: 1 };
+    } catch {}
+  }
+  const src = await decode.sourceFor(file, ext);
+  const m = await sharp(src, { failOn: 'none', limitInputPixels: false, density: ext === 'svg' ? 192 : undefined }).metadata();
   let w = m.width || 0, h = m.pageHeight && m.pages > 1 ? m.pageHeight : m.height || 0;
   if (m.orientation && m.orientation >= 5) [w, h] = [h, w];
-  return { width: w, height: h, pages: m.pages || 1, hasAlpha: !!m.hasAlpha, size, orientation: m.orientation || 1, density: m.density };
+  return { width: w, height: h, pages: m.pages || 1, hasAlpha: !!m.hasAlpha, size, orientation: m.orientation || 1, density: m.density, vector: ext === 'svg' };
+}
+
+// "75%" e "50%" vêm dos atalhos do botão direito; número é o lado maior em px.
+function percentOf(resize) {
+  const m = /^(\d{1,3})%$/.exec(String(resize || ''));
+  return m ? Math.max(1, Math.min(100, Number(m[1]))) / 100 : null;
 }
 
 function resizedDims(w, h, resize) {
   if (!resize || resize === 'original') return { w, h };
+  const pct = percentOf(resize);
+  if (pct) return { w: Math.max(1, Math.round(w * pct)), h: Math.max(1, Math.round(h * pct)) };
   const R = Number(resize);
   const long = Math.max(w, h);
   if (long <= R) return { w, h };
@@ -41,20 +72,26 @@ function resizedDims(w, h, resize) {
   return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
 }
 
-async function inputFor(file, ext) {
-  if (SHARP_CANT_READ.has(ext)) return ff.decodeToPng(file);
-  return file;
+function inputFor(file, ext) {
+  return decode.sourceFor(file, ext);
 }
 
-function baseImage(input, ext, info, target, s) {
-  const animated = (target === 'webp' || target === 'gif') && info.pages > 1;
-  let img = sharp(input, { animated, failOn: 'none', limitInputPixels: false, density: ext === 'svg' ? 192 : undefined });
+function baseImage(input, ext, info, target, s, { ai = false } = {}) {
+  const animated = !ai && (target === 'webp' || target === 'gif') && info.pages > 1;
+  let img = sharp(input, { animated, failOn: 'none', limitInputPixels: false, density: ext === 'svg' && !ai ? 192 : undefined });
   img = typeof img.autoOrient === 'function' ? img.autoOrient() : img.rotate();
-  if (s.resize && s.resize !== 'original') {
-    const R = Number(s.resize);
-    img = img.resize({ width: R, height: R, fit: 'inside', withoutEnlargement: true });
+  // Com a IA ligada a tela esconde o "Tamanho máximo": quem não cresce (já em 4K) sai no tamanho original.
+  if (!ai && !aiEffective(s) && s.resize && s.resize !== 'original') {
+    const k = percentOf(s.resize);
+    if (k) {
+      const d = resizedDims(info.width, info.height, s.resize);
+      img = img.resize({ width: d.w, height: d.h, fit: 'inside' });
+    } else {
+      const R = Number(s.resize);
+      img = img.resize({ width: R, height: R, fit: 'inside', withoutEnlargement: true });
+    }
   }
-  if (!s.stripMetadata) img = img.keepMetadata();
+  if (!s.stripMetadata && !ai) img = img.keepMetadata();
   return img;
 }
 
@@ -132,9 +169,22 @@ async function buildBmp(img) {
 }
 
 // Converte e devolve o arquivo final em memória.
-async function encodeImage(file, ext, info, target, s) {
-  const input = await inputFor(file, ext);
-  let img = baseImage(input, ext, info, target, s);
+// ctx.upscaled: PNG já ampliado pela IA. ctx.proxy: estimativa (amplia sem IA, só pra medir o tamanho).
+async function encodeImage(file, ext, info, target, s, ctx = {}) {
+  let input = await inputFor(file, ext);
+  const ai = aiApplies(info, s);
+  if (ai) {
+    if (ctx.upscaled) input = ctx.upscaled;
+    else input = (await upscale.proxyImage(input, info.hasAlpha, s.upscaleSize)).buffer;
+  }
+  // Porcentagem usa o tamanho real do que foi decodificado (HEIC girado, RAW em pé).
+  let dimsInfo = info;
+  if (!ai && percentOf(s.resize)) {
+    const m = await sharp(input, { failOn: 'none', limitInputPixels: false }).metadata();
+    const w = m.width || info.width, h = (m.pageHeight && m.pages > 1 ? m.pageHeight : m.height) || info.height;
+    dimsInfo = { ...info, ...(m.orientation >= 5 ? { width: h, height: w } : { width: w, height: h }) };
+  }
+  let img = baseImage(input, ext, dimsInfo, target, s, { ai });
   if (target === 'ico') return buildIco(img);
   if (target === 'bmp') return buildBmp(img);
   if (target === 'jpg') img = img.flatten({ background: '#ffffff' });
@@ -144,23 +194,38 @@ async function encodeImage(file, ext, info, target, s) {
   return img.toFormat(fmt, opts).toBuffer();
 }
 
+// A IA cria textura que a ampliação comum não tem, e textura pesa. Medido em 4 fotos reais (14/11/2026):
+// quanto o arquivo com IA sai maior que a prévia ampliada sem IA, por formato e modo.
+const AI_DETAIL = {
+  standard: { jpg: 1.35, webp: 1.6, avif: 1.6, png: 2.6, tiff: 1.9, gif: 1.3, ico: 1, bmp: 1 },
+  max: { jpg: 1.55, webp: 1.85, avif: 2.1, png: 2.4, tiff: 2, gif: 1.4, ico: 1, bmp: 1 },
+};
+
 // Tamanho final sem gravar arquivo. BMP é calculado; o resto é codificado de verdade.
 async function estimateImage(file, ext, info, target, s) {
-  if (target === 'bmp') {
-    const { w, h } = resizedDims(info.width, info.height, s.resize);
-    return 54 + Math.ceil((w * 3) / 4) * 4 * h;
-  }
+  const ai = aiApplies(info, s);
+  const dims = ai ? upscale.targetDims(info.width, info.height, s.upscaleSize)
+    : aiEffective(s) ? { w: info.width, h: info.height } : resizedDims(info.width, info.height, s.resize);
+  if (target === 'bmp') return 54 + Math.ceil((dims.w * 3) / 4) * 4 * dims.h;
   const buf = await encodeImage(file, ext, info, target, s);
-  return buf.length;
+  const k = ai ? ((AI_DETAIL[s.upscale] || AI_DETAIL.standard)[target] || 1.4) : 1;
+  return Math.round(buf.length * k);
 }
 
-async function convertImage(file, ext, info, target, s, outPath) {
-  const buf = await encodeImage(file, ext, info, target, s);
+async function convertImage(file, ext, info, target, s, outPath, ctx = {}) {
+  const buf = await encodeImage(file, ext, info, target, s, ctx);
   await fs.promises.writeFile(outPath, buf);
   return buf.length;
 }
 
+// Arquivo de entrada já decodificado (o que o motor de IA lê).
+function sourceOf(file, ext) { return inputFor(file, ext); }
+
 async function thumbnail(file, ext, size = 160) {
+  // RAW, HEIC, JXL e PSD: miniatura direto na memória, sem decodificar a foto inteira no disco.
+  if (decode.needsDecode(ext) && ext !== 'bmp' && ext !== 'ico') {
+    return (await decode.thumbSource(file, ext)).resize(size, size, { fit: 'cover' }).webp({ quality: 72, alphaQuality: 80 }).toBuffer();
+  }
   const input = await inputFor(file, ext);
   return sharp(input, { failOn: 'none', limitInputPixels: false, density: ext === 'svg' ? 96 : undefined })
     .autoOrient()
@@ -168,4 +233,4 @@ async function thumbnail(file, ext, size = 160) {
     .webp({ quality: 72, alphaQuality: 80 }).toBuffer();
 }
 
-module.exports = { probeImage, estimateImage, convertImage, thumbnail, capabilities, resizedDims };
+module.exports = { probeImage, estimateImage, convertImage, thumbnail, capabilities, resizedDims, sourceOf, upscaleOn, aiApplies, aiCandidate, aiEffective };

@@ -106,6 +106,7 @@ async function probe(file) {
       fps: Math.min(parseFps(realVideo.avg_frame_rate) || parseFps(realVideo.r_frame_rate) || 30, 120),
       bitrate: num(realVideo.bit_rate) || num(realVideo.tags && realVideo.tags.BPS),
       pixFmt: realVideo.pix_fmt,
+      colorSpace: realVideo.color_space || null,
       frames: num(realVideo.nb_frames),
     };
   }
@@ -134,6 +135,23 @@ async function probe(file) {
     subs: subs.map((s) => s.codec_name),
     hasAttachments: streams.some((s) => s.codec_type === 'attachment'),
   };
+}
+
+// Tamanho de uma imagem que o FFmpeg lê (HEIC, JPEG XL, PSD) sem decodificar.
+// HEIC do iPhone é uma grade de blocos de 512 px: o tamanho de verdade vem do grupo "Tile Grid".
+async function probeStill(file) {
+  const buf = await runBuffer(ffprobePath(), [
+    '-v', 'error', '-print_format', 'json', '-show_streams', '-show_stream_groups', file,
+  ], { timeout: 30000 });
+  const j = JSON.parse(buf.toString('utf8'));
+  const group = (j.stream_groups || []).find((g) => /tile grid/i.test(g.type || ''));
+  const comp = group && (group.components || [])[0];
+  const v = (j.streams || []).find((s) => s.codec_type === 'video') || {};
+  let w = num(comp ? comp.width : v.width), h = num(comp ? comp.height : v.height);
+  const sides = [...((comp && comp.side_data_list) || []), ...((group && group.side_data_list) || []), ...((!comp && v.side_data_list) || [])];
+  const rot = Math.abs(num((sides.find((d) => d.rotation !== undefined) || {}).rotation));
+  if (rot === 90 || rot === 270) [w, h] = [h, w];
+  return { width: w, height: h, alpha: /^(yuva|rgba|bgra|argb|abgr|gbrap|ya)/.test(String(v.pix_fmt || '')) };
 }
 
 // Executa o ffmpeg com barra de progresso. onProgress recebe 0..1.
@@ -202,4 +220,4 @@ function listEncoders() {
   });
 }
 
-module.exports = { setBinDir, binDir, ffmpegPath, ffprobePath, probe, runBuffer, runWithProgress, thumbnail, decodeToPng, listEncoders, track, killAll, running, PLAT };
+module.exports = { setBinDir, binDir, ffmpegPath, ffprobePath, probe, probeStill, runBuffer, runWithProgress, thumbnail, decodeToPng, listEncoders, track, killAll, running, PLAT };

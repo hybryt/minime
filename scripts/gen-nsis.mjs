@@ -12,23 +12,34 @@ const shell = require(join(ROOT, 'src/main/shell.js'));
 const EXE = '$INSTDIR\\MINIME.exe';
 const nsisStr = (s) => String(s).replace(/\$/g, '$$$$').replace(/"/g, '$\\"');
 
+// Menu com os atalhos padrão. Se o usuário mudou os atalhos, o app regrava as árvores ao abrir.
+const model = shell.menuModel(null);
 const install = [];
 const uninstall = [];
-for (const m of shell.menuSpec()) {
-  const k = m.key;
-  install.push(`  ; .${m.ext}`);
-  install.push(`  WriteRegStr HKCU "${k}" "MUIVerb" "${nsisStr(shell.MENU_LABEL)}"`);
-  install.push(`  WriteRegStr HKCU "${k}" "Icon" "${EXE},0"`);
-  install.push(`  WriteRegStr HKCU "${k}" "SubCommands" ""`);
-  install.push(`  WriteRegStr HKCU "${k}" "MultiSelectModel" "Player"`);
-  for (const e of m.entries) {
-    const sk = `${k}\\shell\\${e.key}`;
-    install.push(`  WriteRegStr HKCU "${sk}" "MUIVerb" "${nsisStr(e.label)}"`);
-    install.push(`  WriteRegStr HKCU "${sk}" "MultiSelectModel" "Player"`);
-    if (e.flags) install.push(`  WriteRegDWORD HKCU "${sk}" "CommandFlags" ${e.flags}`);
-    install.push(`  WriteRegStr HKCU "${sk}\\command" "" '"${EXE}" ${e.args} "%1"'`);
-  }
-  uninstall.push(`  DeleteRegKey HKCU "${k}"`);
+for (const m of model.exts) {
+  install.push(`    ; .${m.ext}`);
+  install.push(`    DeleteRegKey HKCU "${m.key}"`);
+  install.push(`    WriteRegStr HKCU "${m.key}" "MUIVerb" "${nsisStr(shell.MENU_LABEL)}"`);
+  install.push(`    WriteRegStr HKCU "${m.key}" "Icon" "${EXE},0"`);
+  install.push(`    WriteRegStr HKCU "${m.key}" "ExtendedSubCommandsKey" "${m.tree}"`);
+  install.push(`    WriteRegStr HKCU "${m.key}" "MultiSelectModel" "Player"`);
+  uninstall.push(`  DeleteRegKey HKCU "${m.key}"`);
+}
+const entry = (base, e) => {
+  const k = `${base}\\shell\\${e.key}`;
+  install.push(`    WriteRegStr HKCU "${k}" "MUIVerb" "${nsisStr(e.label)}"`);
+  install.push(`    WriteRegStr HKCU "${k}" "MultiSelectModel" "Player"`);
+  if (e.flags) install.push(`    WriteRegDWORD HKCU "${k}" "CommandFlags" ${e.flags}`);
+  if (e.children) {
+    install.push(`    WriteRegStr HKCU "${k}" "SubCommands" ""`);
+    for (const c of e.children) entry(k, c);
+  } else install.push(`    WriteRegStr HKCU "${k}\\command" "" '"${EXE}" ${e.args} "%1"'`);
+};
+for (const t of model.trees) {
+  install.push(`    ; árvore ${t.name}`);
+  install.push(`    DeleteRegKey HKCU "${t.key}"`);
+  for (const e of t.entries) entry(t.key, e);
+  uninstall.push(`  DeleteRegKey HKCU "${t.key}"`);
 }
 
 const notify = "  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'";
@@ -42,6 +53,7 @@ const out = `; Gerado por scripts/gen-nsis.mjs. Não edite à mão.
 !include LogicLib.nsh
 
 !ifndef BUILD_UNINSTALLER
+  Var MinimeMenuOff
   Var MinimePrefsShown
   Var MinimeAutoCtl
   Var MinimeLoginCtl
@@ -79,7 +91,11 @@ const out = `; Gerado por scripts/gen-nsis.mjs. Não edite à mão.
 !macroend
 
 !macro customInstall
+  ; Menu do botão direito: só grava se o usuário não desligou no app (o app grava Menu=0 em HKCU\\Software\\MINIME).
+  ReadRegDWORD $MinimeMenuOff HKCU "Software\\MINIME" "Menu"
+  \${If} $MinimeMenuOff != "0"
 ${install.join('\n')}
+  \${EndIf}
   ; Preferências: só grava quando a tela apareceu (atualização silenciosa mantém o que o usuário escolheu)
   \${If} $MinimePrefsShown == "1"
     WriteRegDWORD HKCU "Software\\MINIME" "AutoUpdate" $MinimeAuto
@@ -105,4 +121,4 @@ ${notify}
 
 // NSIS Unicode só lê UTF-8 com BOM; sem ele os acentos quebram.
 writeFileSync(join(ROOT, 'build/installer.nsh'), `﻿${out}`, 'utf8');
-console.log(`build/installer.nsh gerado (${shell.menuSpec().length} extensões).`);
+console.log(`build/installer.nsh gerado (${model.exts.length} extensões, ${model.trees.length} árvores de menu).`);

@@ -1,8 +1,8 @@
 {
   "name": "minime",
   "productName": "MINIME",
-  "version": "1.2.0",
-  "description": "Converte e encolhe imagens, vídeos e áudios no Windows e no Mac. Criado por Alan Moreira.",
+  "version": "1.3.0",
+  "description": "Converte, encolhe e aumenta com IA imagens, vídeos e áudios no Windows e no Mac. Criado por Alan Moreira.",
   "author": {
     "name": "Alan Moreira",
     "url": "https://alanmore.com.br"
@@ -25,10 +25,13 @@
     "build": "electron-builder --win nsis --x64",
     "build:portable": "electron-builder --win portable --x64",
     "prebuild:mac": "node scripts/make-icon.mjs",
-    "build:mac": "electron-builder --mac --arm64 --x64"
+    "build:mac": "electron-builder --mac --arm64 --x64",
+    "fetch-upscale": "node scripts/fetch-upscale.mjs",
+    "test:ai": "node scripts/test-ai.mjs"
   },
   "dependencies": {
     "electron-updater": "6.8.11",
+    "onnxruntime-node": "1.31.1",
     "sharp": "0.35.5"
   },
   "devDependencies": {
@@ -47,7 +50,10 @@
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+      "!**/node_modules/onnxruntime-node/script/**",
+      "!**/node_modules/onnxruntime-node/lib/**"
     ],
     "extraResources": [
       {
@@ -56,11 +62,26 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/upscale-${os}-${arch}",
+        "to": "upscale/bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/upscale-models",
+        "to": "upscale/models",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asarUnpack": [
       "**/node_modules/sharp/**",
-      "**/node_modules/@img/**"
+      "**/node_modules/@img/**",
+      "**/node_modules/onnxruntime-node/**"
     ],
     "afterPack": "scripts/after-pack.cjs",
     "publish": [
@@ -116,19 +137,85 @@
       },
       "fileAssociations": [
         {
-          "ext": ["jpg", "jpeg", "png", "webp", "avif", "tif", "tiff", "bmp", "gif", "ico", "svg"],
+          "ext": [
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+            "avif",
+            "tif",
+            "tiff",
+            "bmp",
+            "gif",
+            "ico",
+            "svg",
+            "heic",
+            "heif",
+            "hif",
+            "jxl",
+            "psd",
+            "cr2",
+            "cr3",
+            "crw",
+            "nef",
+            "nrw",
+            "arw",
+            "srf",
+            "sr2",
+            "dng",
+            "raf",
+            "orf",
+            "rw2",
+            "pef",
+            "srw",
+            "3fr",
+            "iiq",
+            "erf",
+            "mef",
+            "mos",
+            "kdc",
+            "dcr",
+            "x3f"
+          ],
           "name": "Imagem",
           "role": "Viewer",
           "rank": "Alternate"
         },
         {
-          "ext": ["mp4", "m4v", "mkv", "mov", "avi", "webm", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp", "ogv"],
+          "ext": [
+            "mp4",
+            "m4v",
+            "mkv",
+            "mov",
+            "avi",
+            "webm",
+            "wmv",
+            "flv",
+            "mpg",
+            "mpeg",
+            "mts",
+            "m2ts",
+            "3gp",
+            "ogv"
+          ],
           "name": "Vídeo",
           "role": "Viewer",
           "rank": "Alternate"
         },
         {
-          "ext": ["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "opus", "wma", "aif", "aiff"],
+          "ext": [
+            "mp3",
+            "wav",
+            "m4a",
+            "aac",
+            "flac",
+            "ogg",
+            "oga",
+            "opus",
+            "wma",
+            "aif",
+            "aiff"
+          ],
           "name": "Áudio",
           "role": "Viewer",
           "rank": "Alternate"

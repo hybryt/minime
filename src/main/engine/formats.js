@@ -1,7 +1,11 @@
 'use strict';
 // Catálogo de formatos: o que o MINIME lê, pra onde converte e como cada destino se chama na tela.
 
-const IMAGE_IN = ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'avif', 'tif', 'tiff', 'bmp', 'gif', 'ico', 'svg'];
+// RAW de câmera: o MINIME lê a foto JPEG em tamanho cheio que a câmera grava dentro do arquivo (engine/raw.js).
+const RAW_IN = ['cr2', 'cr3', 'crw', 'nef', 'nrw', 'arw', 'srf', 'sr2', 'dng', 'raf', 'orf', 'rw2', 'pef', 'srw', '3fr', 'iiq', 'erf', 'mef', 'mos', 'kdc', 'dcr', 'x3f'];
+// Lidos pelo FFmpeg e entregues ao sharp como PNG (HEIC do iPhone, JPEG XL, Photoshop, BMP e ICO).
+const FFMPEG_IMAGE = ['heic', 'heif', 'hif', 'jxl', 'psd', 'bmp', 'ico'];
+const IMAGE_IN = ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'avif', 'tif', 'tiff', 'bmp', 'gif', 'ico', 'svg', 'heic', 'heif', 'hif', 'jxl', 'psd', ...RAW_IN];
 const VIDEO_IN = ['mp4', 'm4v', 'mkv', 'mov', 'avi', 'webm', 'wmv', 'flv', 'mpg', 'mpeg', 'ts', 'mts', 'm2ts', '3gp', 'ogv'];
 const AUDIO_IN = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'oga', 'opus', 'wma', 'aif', 'aiff'];
 
@@ -56,7 +60,18 @@ function categoryOf(ext) {
 
 // Normaliza extensões equivalentes (jpeg -> jpg) pra comparar origem e destino.
 function canonical(ext) {
-  return { jpeg: 'jpg', jfif: 'jpg', tif: 'tiff', aiff: 'aif', oga: 'ogg' }[ext] || ext;
+  return { jpeg: 'jpg', jfif: 'jpg', tif: 'tiff', aiff: 'aif', oga: 'ogg', heif: 'heic', hif: 'heic' }[ext] || ext;
+}
+
+const isRaw = (ext) => RAW_IN.includes(ext);
+const viaFfmpeg = (ext) => FFMPEG_IMAGE.includes(ext);
+
+// Destino de "mesmo formato" pro Aumentar com IA: formatos que o MINIME grava ficam iguais, o resto vira JPG
+// (PNG quando o original tem transparência é decidido na hora, pela tela).
+const KEEPABLE = new Set(['jpg', 'png', 'webp', 'avif', 'tiff']);
+function keepTarget(ext) {
+  const c = canonical(ext);
+  return KEEPABLE.has(c) ? c : 'jpg';
 }
 
 function targetsFor(ext) {
@@ -71,7 +86,11 @@ function targetsFor(ext) {
 function defaultTarget(ext) {
   const c = canonical(ext);
   const cat = categoryOf(ext);
-  if (cat === 'image') return c === 'webp' ? 'jpg' : 'webp';
+  if (cat === 'image') {
+    if (isRaw(c) || ['heic', 'jxl'].includes(c)) return 'jpg';
+    if (c === 'psd') return 'png';
+    return c === 'webp' ? 'jpg' : 'webp';
+  }
   if (cat === 'video') return 'mp4';
   if (cat === 'audio') return 'mp3';
   return null;
@@ -84,22 +103,8 @@ function describeTarget(category, target, sourceExt) {
   return { id: target, label: base.label, hint: same ? 'Mesmo formato, só comprime.' : hint, same };
 }
 
-// Itens do menu do botão direito por extensão (o "Mais opções" é adicionado à parte).
-function contextMenuTargets(ext) {
-  const cat = categoryOf(ext);
-  const c = canonical(ext);
-  if (cat === 'image') {
-    const list = ['jpg', 'png', 'webp', 'avif', 'tiff', 'gif', 'ico'];
-    if (ext === 'gif') list.push('mp4');
-    return list.filter((t) => t !== c).concat(['jpg', 'png', 'webp'].includes(c) ? [c] : []);
-  }
-  if (cat === 'video') return ['mp4', 'mov', 'mkv', 'avi', 'webm', 'gif', 'mp3'].filter((t) => t !== c).concat(c === 'mp4' ? ['mp4'] : []);
-  if (cat === 'audio') return ['mp3', 'wav', 'm4a', 'flac', 'opus', 'mp4'].filter((t) => t !== c).concat(c === 'mp3' ? ['mp3'] : []);
-  return [];
-}
-
 module.exports = {
-  IMAGE_IN, VIDEO_IN, AUDIO_IN, IMAGE_OUT, VIDEO_OUT, AUDIO_OUT, TARGETS,
+  IMAGE_IN, VIDEO_IN, AUDIO_IN, IMAGE_OUT, VIDEO_OUT, AUDIO_OUT, RAW_IN, FFMPEG_IMAGE, TARGETS,
   ALL_IN: [...IMAGE_IN, ...VIDEO_IN, ...AUDIO_IN],
-  extOf, categoryOf, canonical, targetsFor, defaultTarget, describeTarget, contextMenuTargets,
+  extOf, categoryOf, canonical, targetsFor, defaultTarget, describeTarget, isRaw, viaFfmpeg, keepTarget,
 };

@@ -27,6 +27,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run fetch-ffmpeg -- --win
+      - run: npm run fetch-upscale -- --win
       - run: node scripts/make-icon.mjs && node scripts/gen-nsis.mjs
       - run: npx electron-builder --win nsis portable --x64 --publish always
         env:
@@ -50,12 +51,13 @@ jobs:
           echo "sharp $SHARP, libvips $VIPS"
           npm install --no-save --force "@img/sharp-darwin-x64@$SHARP" "@img/sharp-libvips-darwin-x64@$VIPS"
       - run: npm run fetch-ffmpeg -- --mac
+      - run: npm run fetch-upscale -- --mac
       - run: node scripts/make-icon.mjs
       - run: npx electron-builder --mac dmg zip --arm64 --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Conferir assinatura e o FFmpeg do Mac
+      - name: Conferir assinatura, FFmpeg e motor de IA do Mac
         run: |
           for a in mac-arm64 mac; do
             APP="dist/$a/MINIME.app"
@@ -64,9 +66,14 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$APP"
             file "$APP/Contents/Resources/ffmpeg/ffmpeg"
             ls "$APP/Contents/Resources/app.asar.unpacked/node_modules/@img"
+            file "$APP/Contents/Resources/upscale/bin/realesrgan-ncnn-vulkan"
+            ls "$APP/Contents/Resources/upscale/models"
           done
           dist/mac-arm64/MINIME.app/Contents/Resources/ffmpeg/ffmpeg -hide_banner -encoders | grep -E "videotoolbox|libx264|libwebp"
+          dist/mac-arm64/MINIME.app/Contents/Resources/ffmpeg/ffmpeg -hide_banner -decoders | grep -E "hevc|jxl|psd" || true
           node -e "require('./dist/mac-arm64/MINIME.app/Contents/Resources/app.asar.unpacked/node_modules/sharp')().metadata ? console.log('sharp ok') : 0" || true
+          dist/mac-arm64/MINIME.app/Contents/Resources/upscale/bin/realesrgan-ncnn-vulkan -h 2>&1 | head -3 || true
+          ls -la dist/mac-arm64/MINIME.app/Contents/Resources/app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64 || true
 
   publish:
     name: Publicar a Release

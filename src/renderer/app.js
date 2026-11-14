@@ -53,6 +53,9 @@
     system: svg('<circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" stroke="none"/>'),
     sun: svg('<circle cx="10" cy="10" r="3.2"/><path d="M10 2.5v1.7M10 15.8v1.7M17.5 10h-1.7M4.2 10H2.5M15.3 4.7l-1.2 1.2M5.9 14.1l-1.2 1.2M15.3 15.3l-1.2-1.2M5.9 5.9L4.7 4.7"/>'),
     moon: svg('<path d="M15.8 12.3A6.5 6.5 0 0 1 7.7 4.2a6.5 6.5 0 1 0 8.1 8.1z"/>'),
+    spark: svg('<path d="M10 2.8l1.5 4.4 4.5 1.5-4.5 1.5L10 14.6l-1.5-4.4L4 8.7l4.5-1.5zM15.6 13.4l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6z" fill="currentColor" stroke="none"/>'),
+    bolt: svg('<path d="M11 2.8L5 11h4.4L8.8 17.2 15 8.9h-4.4z" fill="currentColor" stroke="none"/>'),
+    list: svg('<path d="M7.5 6h9M7.5 10h9M7.5 14h9"/><circle cx="4" cy="6" r=".9" fill="currentColor" stroke="none"/><circle cx="4" cy="10" r=".9" fill="currentColor" stroke="none"/><circle cx="4" cy="14" r=".9" fill="currentColor" stroke="none"/>'),
   };
   const appIcon = '<img class="appicon" src="assets/icon.png" alt="">';
   const wordmark = '<span class="wordmark" aria-label="minime"><span>m</span><span>i</span><span>n</span><span>i</span><span>m</span><span>e</span></span>';
@@ -63,16 +66,26 @@
   const KIND = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio' };
   const CAT_PLURAL = { image: 'Imagens', video: 'Vídeos', audio: 'Áudios' };
   const FORMAT_LIST = {
-    image: 'JPG PNG WebP AVIF TIFF GIF BMP ICO SVG',
+    image: 'JPG PNG HEIC RAW WebP AVIF TIFF GIF PSD JXL BMP ICO SVG',
     video: 'MP4 MKV MOV AVI WebM WMV FLV MPG 3GP',
     audio: 'MP3 WAV M4A AAC FLAC OGG Opus WMA AIFF',
   };
 
   const DEFAULTS = {
-    image: { objective: 'balanced', quality: 80, resize: 'original', stripMetadata: true },
-    video: { objective: 'balanced', quality: 60, resolution: 'original', engine: 'auto', codec: 'h264' },
+    image: { objective: 'balanced', quality: 80, resize: 'original', stripMetadata: true, upscale: 'off', upscaleSize: '4k' },
+    video: { objective: 'balanced', quality: 60, resolution: 'original', engine: 'auto', codec: 'h264', upscale: false },
     audio: { quality: 57, background: 'wave' },
   };
+  // "Aumentar com IA": só duas escolhas, sem nome de modelo na tela.
+  const AI_MODES = [['off', 'Desligado'], ['standard', 'Padrão'], ['max', 'Máxima']];
+  const AI_HELP = {
+    off: 'Aumenta a resolução até 4K com inteligência artificial, rodando aqui no seu computador.',
+    standard: 'Rápido. Limpa a compressão de foto baixada da internet ou do WhatsApp. Uns segundos por foto.',
+    max: 'Mais textura e detalhe de verdade: pele, cabelo, tecido. Leva uns 4 vezes mais que o padrão.',
+  };
+  const AI_SIZE = [['4k', 'Até 4K'], ['2x', '2 vezes']];
+  const KEEPABLE = ['jpg', 'png', 'webp', 'avif', 'tiff'];
+  const CAT_NAME = { image: 'imagem', video: 'vídeo', audio: 'áudio' };
 
   const OBJ = {
     image: [
@@ -88,7 +101,7 @@
   };
   const CUSTOM_HELP = 'Ajuste manual: o tamanho final acompanha a régua de qualidade.';
 
-  const RESIZE = [['original', 'Original'], [3840, '3840 px (4K)'], [2560, '2560 px'], [1920, '1920 px (Full HD)'], [1280, '1280 px'], [800, '800 px']];
+  const RESIZE = [['original', 'Original'], ['75%', '75% do tamanho'], ['50%', 'Metade (50%)'], ['25%', '25% do tamanho'], [3840, '3840 px (4K)'], [2560, '2560 px'], [1920, '1920 px (Full HD)'], [1280, '1280 px'], [800, '800 px']];
   const RESOLUTION = [['original', 'Original'], [2160, '4K (2160p)'], [1440, '1440p'], [1080, '1080p (Full HD)'], [720, '720p'], [480, '480p']];
   const ENGINE = [['auto', 'Automático', 'Usa a placa de vídeo quando ela der conta do formato.'], ['gpu', 'Placa de vídeo', 'Mais rápido.'], ['cpu', 'Processador', 'Mais lento, comprime um pouco melhor.']];
   const CODEC = [['h264', 'H.264'], ['h265', 'H.265']];
@@ -128,8 +141,13 @@
     prefs: null,
     update: null,
     system: null,
+    ai: null, // { standard, max, video, gpu, gpuError }
+    preset: null, // atalho de 1 clique que abriu esta janela rápida
+    skipped: [], // arquivos de outro tipo que o atalho deixou de fora
+    lateFiles: [], // chegaram com a conversão rodando: entram na próxima
   };
-  const saveSettings = () => store.save('minime.settings.v1', state.settings);
+  // Atalho de 1 clique usa os próprios ajustes, sem mexer no que o usuário salvou no app.
+  const saveSettings = () => { if (!state.preset) store.save('minime.settings.v1', state.settings); };
   const saveDest = () => store.save('minime.dest.v1', state.dest);
 
   const byId = (id) => state.items.find((i) => i.id === id);
@@ -151,7 +169,14 @@
     const has = (t) => it.targets.some((x) => x.id === t);
     if (MODE === 'quick' && state.quickTarget) {
       if (state.quickTarget === 'same') { const s = it.targets.find((x) => x.same); if (s) return s.id; }
-      else if (has(state.quickTarget)) return state.quickTarget;
+      else if (state.quickTarget === 'keep') {
+        // Aumentar com IA: mesmo formato quando o MINIME grava ele (HEIC e RAW viram JPG).
+        const s = it.targets.find((x) => x.same && KEEPABLE.includes(x.id));
+        if (s) return s.id;
+        // HEIC, PSD ou RAW com transparência: PNG guarda o fundo transparente, JPG não.
+        if (it.alpha && has('png')) return 'png';
+        if (has('jpg')) return 'jpg';
+      } else if (has(state.quickTarget)) return state.quickTarget;
     }
     const remembered = state.lastTargets[`${it.category}:${it.ext}`] || state.lastTargets[it.category];
     if (remembered && has(remembered)) return remembered;
@@ -250,7 +275,11 @@
 
   async function addPaths(paths) {
     if (!paths || !paths.length) return;
-    if (state.phase === 'converting') { toast('Espere a conversão terminar pra adicionar mais arquivos.'); return; }
+    if (state.phase === 'converting') {
+      // Atalho de 1 clique: arquivos que chegaram atrasados entram logo depois.
+      if (state.preset) { state.lateFiles.push(...paths); return; }
+      toast('Espere a conversão terminar pra adicionar mais arquivos.'); return;
+    }
     if (state.phase === 'done') clearDone();
     state.loading++;
     const slow = setTimeout(() => toast('Lendo os arquivos…', 8000), 450);
@@ -258,6 +287,15 @@
     try { added = await api.addPaths(paths); } catch (e) { toast(`Não consegui ler: ${e.message || e}`); }
     clearTimeout(slow);
     state.loading--;
+    // Seleção misturada no atalho: converte só o tipo do atalho e conta o resto.
+    if (state.preset) {
+      const other = added.filter((i) => i.category !== state.preset.cat);
+      if (other.length) {
+        state.skipped.push(...other.map((i) => i.category));
+        api.removeItems(other.map((i) => i.id));
+        added = added.filter((i) => i.category === state.preset.cat);
+      }
+    }
     const known = new Set(state.items.map((i) => i.id));
     const fresh = added.filter((i) => !known.has(i.id));
     for (const it of fresh) {
@@ -265,14 +303,28 @@
       it.est = null; it.status = null; it.progress = 0; it.thumb = undefined;
       state.items.push(it);
     }
-    if (!added.length) toast('Nenhum arquivo compatível. O MINIME lê imagens, vídeos e áudios.');
-    else if (!fresh.length) toast('Esses arquivos já estão na lista.');
+    if (!added.length && !state.preset) toast('Nenhum arquivo compatível. O MINIME lê imagens, vídeos e áudios.');
+    else if (added.length && !fresh.length && !state.preset) toast('Esses arquivos já estão na lista.');
     else toastEl.hidden = true;
     if (!state.tab || !kindsPresent().includes(state.tab)) state.tab = kindsPresent()[0] || null;
     render();
     loadThumbs(fresh.filter((i) => i.ok));
     await refreshCaps();
     scheduleEstimate(0);
+    if (state.preset) scheduleAutoStart();
+  }
+
+  // O Explorer abre um processo por arquivo selecionado: espera eles pararem de chegar e começa sozinho.
+  let autoTimer = null;
+  function scheduleAutoStart(delay = 900) {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => {
+      if (!autoPreset()) return;
+      if (state.phase !== 'idle' || state.loading) { if (state.loading) scheduleAutoStart(300); return; }
+      state.emptyChecked = true;
+      if (okItems().length) startConvert();
+      else render();
+    }, delay);
   }
 
   async function loadThumbs(list) {
@@ -469,16 +521,43 @@
     return `<div class="thumb ${it.thumb ? '' : art}" data-tid="${it.id}">${it.thumb ? `<img src="${it.thumb}" alt="">` : icon}</div>`;
   }
 
+  function fmtEta(s) {
+    if (!s || s < 1) return '';
+    if (s < 60) return `falta menos de 1 min`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `faltam uns ${m} min`;
+    const h = Math.floor(m / 60), r = m % 60;
+    return `faltam uns ${h} h${r ? ` ${r} min` : ''}`;
+  }
+  // "vira 3840 × 2160" quando o Aumentar com IA está ligado (dimensão sem ponto de milhar, como no resto do app).
+  function aiDims(it) {
+    const d = it.est && it.est.detail;
+    if (!d) return null;
+    if (d.upscale && d.w) return { text: `vira ${d.w} × ${d.h}`, on: true };
+    if (d.already || d.aiAlready) return { text: 'já está em 4K, sai sem aumentar', on: false };
+    return null;
+  }
+  function aiDimsLabel(kind) {
+    const its = pendingItems().filter((i) => kindOf(i) === kind);
+    const ds = its.map((i) => i.est && i.est.detail).filter((d) => d && d.upscale && d.w);
+    if (!ds.length) return '';
+    return its.length === 1 ? `${ds[0].w} × ${ds[0].h}` : `${ds.length} de ${its.length} aumentam`;
+  }
+
   function metaHtml(it) {
     const badge = `<span class="badge ${it.category}">${esc(it.ext.toUpperCase())}</span>`;
     if (!it.ok) return `<div class="meta err">${esc(it.error)}</div>`;
-    if (it.status === 'running') return `<div class="meta">${badge}<span>Convertendo… ${Math.round((it.progress || 0) * 100)}%</span></div>`;
+    if (it.status === 'running') {
+      const eta = fmtEta(it.eta);
+      return `<div class="meta">${badge}<span>${it.ai ? 'Aumentando com IA' : 'Convertendo'}… ${Math.round((it.progress || 0) * 100)}%${eta ? ` · ${eta}` : ''}</span></div>`;
+    }
     if (it.status === 'queued') return `<div class="meta">${badge}<span>Na fila</span></div>`;
     if (it.status === 'done') return `<div class="meta">${badge}<span>Pronto. <button class="link-btn" data-act="show" data-id="${it.id}">Mostrar na pasta</button></span></div>`;
     if (it.status === 'error') return `<div class="meta err">${esc(it.convError || 'Falhou.')}</div>`;
     if (it.status === 'cancelled') return `<div class="meta">${badge}<span>Cancelado</span></div>`;
     if (it.est && it.est.error) return `<div class="meta err">${esc(it.est.error)}</div>`;
-    return `<div class="meta">${badge}<span>${esc(it.meta)}</span></div>`;
+    const grow = aiDims(it);
+    return `<div class="meta">${badge}<span>${esc(it.meta)}${grow ? ` <b class="grow-tag ${grow.on ? '' : 'off'}">${grow.on ? I.spark : ''}${esc(grow.text)}</b>` : ''}</span></div>`;
   }
 
   function sizesHtml(it) {
@@ -587,6 +666,7 @@
   }
   function updateValueLabels() {
     for (const el of document.querySelectorAll('[data-value]')) el.textContent = valueText(el.dataset.value);
+    for (const el of document.querySelectorAll('[data-aidims]')) el.textContent = aiDimsLabel(el.dataset.aidims) || (el.dataset.aidims === 'video' ? 'até 4K' : '');
   }
 
   function engineInfo() {
@@ -602,18 +682,71 @@
     return { on: true, text: `Usando a ${hw.gpuLabel}` };
   }
 
+  // Placa usada pela IA: o nome que o motor informou ou o que o app detectou.
+  const aiGpu = () => (state.ai && state.ai.gpu) || (state.hw && state.hw.gpuLabel) || '';
+
+  // Modo de IA que vale de verdade: o salvo, menos o que não roda neste computador (o motor segue a mesma regra).
+  function imgAiMode() {
+    const s = state.settings.image;
+    const av = state.ai;
+    const raw = AI_MODES.some(([v]) => v === s.upscale) ? s.upscale : 'off';
+    if (av && ((raw === 'max' && !av.max) || (raw === 'standard' && !av.standard))) return 'off';
+    return raw;
+  }
+
+  function aiImageGroup() {
+    const s = state.settings.image;
+    const av = state.ai;
+    const mode = imgAiMode();
+    const noStd = !!(av && !av.standard), noMax = !!(av && !av.max);
+    const maxWhy = (av && av.maxWhy) || 'Indisponível neste computador.';
+    const opts = AI_MODES.map(([v, l]) => [v, l, (v === 'standard' && noStd) || (v === 'max' && noMax), v === 'max' && noMax ? maxWhy : v === 'standard' && noStd ? (av.gpuError || 'Indisponível neste computador.') : '']);
+    const on = mode !== 'off';
+    const its = pendingItems().filter((i) => kindOf(i) === 'image');
+    const allBig = its.length > 0 && its.every((i) => i.est && i.est.detail && i.est.detail.already);
+    const help = noStd && av.gpuError ? av.gpuError : allBig && on ? 'Essa imagem já está em 4K ou maior: sai sem aumentar.' : AI_HELP[mode];
+    const gpu = aiGpu();
+    return `<div class="group ai ${on ? 'on' : ''}">
+      <div class="g-title"><span class="ai-title">${I.spark}Aumentar com IA</span>${on ? `<span class="value num" data-aidims="image">${aiDimsLabel('image')}</span>` : ''}</div>
+      ${seg('image.upscale', opts, mode)}
+      <p class="help">${esc(help)}</p>
+      ${on ? `<div class="g-row"><span class="lbl"><b>Tamanho final</b><small>Nunca passa de 4K</small></span>${seg('image.upscaleSize', AI_SIZE, s.upscaleSize || '4k')}</div>` : ''}
+      ${on && gpu && mode === 'standard' ? `<div class="engine"><span class="led on"></span><span>Na ${esc(gpu)}</span></div>` : ''}
+    </div>`;
+  }
+
+  function aiVideoGroup() {
+    const s = state.settings.video;
+    const av = state.ai;
+    const can = !av || av.video;
+    const vids = okItems().filter((i) => kindOf(i) === 'video');
+    const skip = vids.some((i) => !['mp4', 'mkv', 'mov', 'webm', 'avi'].includes(i.target));
+    const big = vids.length > 0 && vids.every((i) => i.est && i.est.detail && i.est.detail.aiAlready);
+    const help = !can ? (av.gpuError || 'Indisponível neste computador.')
+      : s.upscale ? `Cada quadro passa pela IA, então demora bem mais que converter. O tempo que falta aparece durante a conversão.${skip ? ' GIF e áudio saem sem aumentar.' : ''}${big ? ' Esse vídeo já está em 4K: sai sem aumentar.' : ''}`
+        : 'Deixa vídeo antigo ou pequeno mais nítido, até 4K.';
+    const on = s.upscale && can;
+    return `<div class="group ai ${on ? 'on' : ''}">
+      <label class="g-row flat"><span class="lbl"><b class="ai-title">${I.spark}Aumentar com IA</b><small>${on ? `Resolução final: <span data-aidims="video">${aiDimsLabel('video') || 'até 4K'}</span>` : 'Até 4K, quadro a quadro'}</small></span>
+        <span class="switch"><input type="checkbox" data-check="video.upscale" ${s.upscale && can ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="Aumentar com IA"><i></i></span></label>
+      <p class="help">${esc(help)}</p>
+    </div>`;
+  }
+
   function settingsFor(kind) {
     const s = state.settings;
     const caps = state.caps[kind] || { slider: true };
     if (kind === 'image') {
       const o = OBJ.image.find((x) => x.v === s.image.objective);
+      const ai = imgAiMode() !== 'off';
       return `
         <div class="group"><div class="g-title"><span>Objetivo</span></div>
           ${seg('image.objective', OBJ.image.map((x) => [x.v, x.label]), s.image.objective)}
           <p class="help" data-help="image">${esc(o ? o.help : CUSTOM_HELP)}</p></div>
         ${rangeGroup('image.quality', s.image.quality, !caps.slider, caps.note)}
+        ${aiImageGroup()}
         <div class="group rows">
-          <div class="g-row"><span class="lbl"><b>Tamanho máximo</b><small>Lado maior da imagem</small></span>${popupBtn('image.resize', (RESIZE.find(([v]) => String(v) === String(s.image.resize)) || RESIZE[0])[1])}</div>
+          ${ai ? '' : `<div class="g-row"><span class="lbl"><b>Tamanho máximo</b><small>Lado maior ou porcentagem</small></span>${popupBtn('image.resize', (RESIZE.find(([v]) => String(v) === String(s.image.resize)) || RESIZE[0])[1])}</div>`}
           <label class="g-row"><span class="lbl"><b>Remover dados ocultos</b><small>EXIF, GPS e modelo da câmera</small></span>
             <span class="switch"><input type="checkbox" data-check="image.stripMetadata" ${s.image.stripMetadata ? 'checked' : ''} aria-label="Remover dados ocultos"><i></i></span></label>
         </div>`;
@@ -622,18 +755,22 @@
       const o = OBJ.video.find((x) => x.v === s.video.objective);
       const vids = okItems().filter((i) => kindOf(i) === 'video');
       const showCodec = vids.some((i) => ['mp4', 'mkv', 'mov'].includes(i.target));
-      const copy = s.video.objective === 'copy' && caps.remux;
+      const ai = !!s.video.upscale && (!state.ai || state.ai.video);
+      const copy = !ai && s.video.objective === 'copy' && caps.remux;
       const notAllRemux = copy && !caps.remuxAll;
       const pureCopy = copy && caps.remuxAll && s.video.resolution === 'original';
       const eng = engineInfo();
-      const helpText = o ? (o.v === 'copy' && !caps.remux ? 'Pra esse formato o vídeo precisa ser recodificado.' : o.help) : CUSTOM_HELP;
+      const helpText = ai && s.video.objective === 'copy' ? 'Com a IA ligada o vídeo sempre é recodificado.'
+        : o ? (o.v === 'copy' && !caps.remux ? 'Pra esse formato o vídeo precisa ser recodificado.' : o.help) : CUSTOM_HELP;
+      const noCopy = !caps.remux || ai;
       return `
         <div class="group"><div class="g-title"><span>Objetivo</span></div>
-          ${seg('video.objective', OBJ.video.map((x) => [x.v, x.label, x.v === 'copy' && !caps.remux, x.v === 'copy' && !caps.remux ? 'Esse vídeo precisa ser recodificado pra esse formato.' : '']), s.video.objective === 'copy' && !caps.remux ? '' : s.video.objective)}
+          ${seg('video.objective', OBJ.video.map((x) => [x.v, x.label, x.v === 'copy' && noCopy, x.v === 'copy' && noCopy ? (ai ? 'Com a IA ligada o vídeo é recodificado.' : 'Esse vídeo precisa ser recodificado pra esse formato.') : '']), s.video.objective === 'copy' && noCopy ? '' : s.video.objective)}
           <p class="help" data-help="video">${esc(helpText)}${notAllRemux ? ' Alguns arquivos vão ser recodificados.' : ''}</p></div>
         ${rangeGroup('video.quality', s.video.quality, pureCopy, pureCopy ? 'Sem recodificar, a qualidade fica idêntica à do original.' : null)}
+        ${aiVideoGroup()}
         <div class="group rows">
-          <div class="g-row"><span class="lbl"><b>Resolução</b>${copy && s.video.resolution !== 'original' ? '<small>Mudar obriga a recodificar</small>' : '<small>Nunca aumenta</small>'}</span>${popupBtn('video.resolution', (RESOLUTION.find(([v]) => String(v) === String(s.video.resolution)) || RESOLUTION[0])[1])}</div>
+          ${ai ? '' : `<div class="g-row"><span class="lbl"><b>Resolução</b>${copy && s.video.resolution !== 'original' ? '<small>Mudar obriga a recodificar</small>' : '<small>Nunca aumenta</small>'}</span>${popupBtn('video.resolution', (RESOLUTION.find(([v]) => String(v) === String(s.video.resolution)) || RESOLUTION[0])[1])}</div>`}
           ${showCodec && !pureCopy ? `<div class="g-row"><span class="lbl"><b>Codec</b><small>${s.video.codec === 'h265' ? 'Uns 35% menor, menos compatível' : 'Abre em qualquer aparelho'}</small></span>${seg('video.codec', CODEC, s.video.codec)}</div>` : ''}
           ${pureCopy ? '' : `<div class="g-row"><span class="lbl"><b>Motor</b><small>CPU ou placa de vídeo</small></span>${popupBtn('video.engine', (ENGINE.find(([v]) => v === s.video.engine) || ENGINE[0])[1])}</div>`}
         </div>
@@ -761,11 +898,13 @@
     if (bar) bar.style.width = `${p * 100}%`;
     const txt = document.getElementById('overall-text');
     const run = its.find((i) => i.status === 'running');
-    if (txt) txt.textContent = `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}`;
+    const eta = run && fmtEta(run.eta);
+    if (txt) txt.textContent = `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}${eta ? ` (${eta})` : ''}`;
     const qb = document.getElementById('q-bar');
     if (qb) qb.style.width = `${p * 100}%`;
     const qt = document.getElementById('q-text');
-    if (qt) qt.textContent = its.length > 1 ? `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}` : `${Math.round(p * 100)}%`;
+    if (qt) qt.textContent = its.length > 1 ? `${nf0.format(finished)} de ${nf0.format(its.length)} prontos${run ? `. Agora: ${run.name}` : ''}${eta ? ` (${eta})` : ''}`
+      : `${Math.round(p * 100)}%${eta ? ` · ${eta}` : ''}`;
   }
 
   // ---------- Janela rápida ----------
@@ -787,8 +926,23 @@
   function quickLabel() {
     if (state.quickTarget === 'same') return 'Mesmo formato';
     const it = okItems()[0];
-    return it ? targetLabel(it, state.quickTarget) : String(state.quickTarget || '').toUpperCase();
+    return it ? targetLabel(it, it.target) : String(state.quickTarget || '').toUpperCase();
   }
+
+  const presetIsAI = (p) => !!(p && ((p.image && p.image.upscale && p.image.upscale !== 'off') || (p.video && p.video.upscale)));
+  function presetCard() {
+    const p = state.preset;
+    if (!p) return '';
+    return `<div class="q-preset"><span class="qp-icon ${p.cat}">${presetIsAI(p) ? I.spark : I.bolt}</span>
+      <div class="qp-text"><small>Atalho do botão direito</small><b>${esc(p.label)}</b></div></div>`;
+  }
+  function skippedLine() {
+    if (!state.preset || !state.skipped.length) return '';
+    const n = state.skipped.length;
+    const kinds = [...new Set(state.skipped)].map((c) => CAT_NAME[c]).join(' e ');
+    return `<p class="q-note">${plural(n, 'arquivo ficou', 'arquivos ficaram')} de fora (${kinds}). Este atalho é de ${CAT_NAME[state.preset.cat]}.</p>`;
+  }
+  const autoPreset = () => state.preset && !state.presetManual;
 
   function renderQuick() {
     const its = okItems();
@@ -796,7 +950,10 @@
     const first = its[0] || state.items[0];
     let body = '', foot = '';
     if (!first) {
-      body = `<p class="help" style="padding:12px 6px">${state.loading ? 'Lendo o arquivo…' : 'Nenhum arquivo compatível.'}</p>`;
+      const msg = state.loading || (autoPreset() && state.phase === 'idle' && !state.emptyChecked) ? 'Lendo os arquivos…'
+        : state.preset ? `Nenhum arquivo de ${CAT_NAME[state.preset.cat]} na seleção.` : 'Nenhum arquivo compatível.';
+      body = `${presetCard()}<p class="help" style="padding:12px 6px">${msg}</p>${skippedLine()}`;
+      if (state.preset && !state.loading) foot = '<div class="actions"><span></span><button class="btn primary" data-act="close">Fechar</button></div>';
     } else {
       const total = its.reduce((s, i) => s + i.size, 0);
       const stack = its.slice(0, 3).map(thumbHtml).join('') || thumbHtml(first);
@@ -806,8 +963,12 @@
         ${bad.length ? `<small style="display:block;color:var(--red-ink)">${plural(bad.length, 'arquivo ignorado', 'arquivos ignorados')}: ${esc(bad[0].error)}</small>` : ''}
       </div></div>`;
       if (state.phase === 'converting') {
-        body = `${fileBlock}<div class="group q-progress"><div class="bar"><i id="q-bar"></i></div><p id="q-text">Começando…</p></div>`;
+        body = `${fileBlock}${presetCard()}<div class="group q-progress"><div class="bar"><i id="q-bar"></i></div><p id="q-text">Começando…</p></div>${skippedLine()}`;
         foot = '<div class="actions"><span></span><button class="btn" data-act="cancel">Cancelar</button></div>';
+      } else if (state.phase === 'idle' && autoPreset()) {
+        // Atalho: começa sozinho assim que os arquivos param de chegar (menos de 1 s).
+        body = `${fileBlock}${presetCard()}<div class="group q-progress"><div class="bar wait"><i></i></div><p>Começando…</p></div>${skippedLine()}`;
+        foot = '<div class="actions"><button class="btn small" data-act="preset-adjust">Ajustar antes</button><span></span></div>';
       } else if (state.phase === 'done' && state.summary) {
         const s = state.summary;
         const failed = its.filter((i) => i.status === 'error');
@@ -817,7 +978,7 @@
           <b>${s.done ? 'Pronto.' : 'Não deu certo.'}</b>
           ${s.done ? `<p class="num">${fmtBytes(s.inBytes)} viraram ${fmtBytes(s.outBytes)}${d ? ` (${d.text})` : ''}. ${plural(s.done, 'arquivo salvo', 'arquivos salvos')}.</p>` : ''}
           ${failed.map((i) => `<p class="err">${esc(i.name)}: ${esc(i.convError)}</p>`).join('')}
-        </div>`;
+        </div>${skippedLine()}`;
         foot = `<div class="actions"><button class="btn" data-act="open-out">${I.folder}Mostrar na pasta</button><button class="btn primary" data-act="close">Fechar</button></div>`;
       } else {
         body = `${fileBlock}
@@ -983,12 +1144,21 @@
     const pf = state.prefs || { autoUpdate: true, openAtLogin: false };
     const u = updateLine();
     const loginLabel = IS_MAC ? 'Abrir quando o Mac iniciar' : 'Abrir quando o Windows iniciar';
-    const integration = IS_MAC
-      ? '<div class="g-row"><span class="lbl"><b>No Finder</b><small>Botão direito no arquivo ▸ Abrir com ▸ MINIME, ou arraste até o ícone no Dock</small></span></div>'
+    const menuToggle = IS_MAC
+      ? `<label class="g-row"><span class="lbl"><b>Ações Rápidas no Finder</b><small>Botão direito no arquivo ▸ Ações Rápidas ▸ MINIME</small></span>
+          <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''} aria-label="Ações Rápidas no Finder"><i></i></span></label>`
       : `<label class="g-row"><span class="lbl"><b>Menu do botão direito</b><small>"Converter com MINIME" no Explorer. No Windows 11 fica em Mostrar mais opções.</small></span>
           <span class="switch"><input type="checkbox" data-check="menu" ${state.menuOn ? 'checked' : ''} aria-label="Menu do botão direito"><i></i></span></label>`;
+    const integration = `${menuToggle}
+      <div class="g-row"><span class="lbl"><b>Atalhos de 1 clique</b><small>Até 6 por tipo de arquivo, convertem sem abrir o app</small></span><button class="btn small" data-act="presets">Escolher</button></div>
+      ${IS_MAC ? '<div class="g-row"><span class="lbl"><b>Abrir com</b><small>Botão direito ▸ Abrir com ▸ MINIME, ou arraste até o ícone no Dock</small></span></div>' : ''}`;
+    const av = state.ai;
+    const gpu = aiGpu();
+    const aiLine = !av ? 'Verificando o motor de IA…'
+      : !av.standard ? esc(av.gpuError || 'O motor de IA não está disponível neste computador.')
+        : `Padrão e vídeo na placa de vídeo${gpu ? ` (${esc(gpu)})` : ''}. Qualidade máxima: ${av.max ? 'pronta.' : esc(av.maxWhy || 'indisponível neste computador.')} Tudo roda aqui, nada vai pra internet.`;
     return `<div class="prefs">
-      <div class="p-head"><img class="appicon" src="assets/icon.png" alt=""><div><b>MINIME</b><small>Versão ${esc(state.version)}. Converte e encolhe imagens, vídeos e áudios.</small></div></div>
+      <div class="p-head"><img class="appicon" src="assets/icon.png" alt=""><div><b>MINIME</b><small>Versão ${esc(state.version)}. Converte, encolhe e aumenta com IA imagens, vídeos e áudios.</small></div></div>
       <div class="sect">Aparência</div>
       ${seg('theme', THEMES.map(([v, l, icon]) => [v, l, false, '', icon]), state.theme)}
       <div class="sect">Atualização e inicialização</div>
@@ -1001,6 +1171,8 @@
       </div>
       <div class="sect">Integração</div>
       <div class="group rows">${integration}</div>
+      <div class="sect">Aumentar com IA</div>
+      <div class="group"><p>${aiLine}</p><p class="credits">Modelos Real-ESRGAN (Xintao Wang, BSD-3) e UltraSharp V2 (Kim2091, CC BY-NC-SA 4.0).</p></div>
       <div class="sect">Este computador</div>
       <div class="group">${systemHtml()}</div>
       <p>Ao fechar a janela, o MINIME para tudo na hora: nenhum processo fica rodando escondido.</p>
@@ -1010,7 +1182,8 @@
 
   async function openPrefs(anchor) {
     closeMenu();
-    if (state.menuOn === null && !IS_MAC) { try { state.menuOn = await api.menuStatus(); } catch { state.menuOn = false; } }
+    if (state.menuOn === null) { try { state.menuOn = await api.menuStatus(); } catch { state.menuOn = false; } }
+    try { state.ai = await api.aiInfo(); } catch {}
     try { state.prefs = await api.getPrefs(); state.update = state.prefs.update; } catch {}
     if (!state.system || !state.system.lanes) { try { state.system = await api.system(); } catch {} }
     popover.innerHTML = prefsHtml();
@@ -1024,6 +1197,56 @@
     const scroll = popover.scrollTop;
     popover.innerHTML = prefsHtml();
     popover.scrollTop = scroll;
+  }
+
+  // ---------- Atalhos de 1 clique (escolha nas Preferências) ----------
+
+  let presetsData = null, presetsDraft = null;
+  async function openPresetsSheet() {
+    closeMenu();
+    try { presetsData = await api.getPresets(); } catch (e) { toast(`Não consegui abrir os atalhos: ${e.message || e}`); return; }
+    presetsDraft = structuredClone(presetsData.menu);
+    renderPresetsSheet();
+  }
+  function renderPresetsSheet() {
+    let el = document.getElementById('presets-sheet');
+    if (!el) { el = document.createElement('div'); el.id = 'presets-sheet'; el.className = 'welcome-backdrop'; document.body.appendChild(el); }
+    const max = presetsData.max;
+    const where = IS_MAC ? 'em Ações Rápidas, no Finder' : 'em "Converter com MINIME", no Explorer';
+    const cols = ['image', 'video', 'audio'].map((c) => {
+      const chosen = presetsDraft[c];
+      const rows = presetsData.list.filter((p) => p.cat === c).map((p) => {
+        const on = chosen.includes(p.id);
+        const full = !on && chosen.length >= max;
+        return `<label class="ps-row ${on ? 'on' : ''} ${full ? 'full' : ''}"><span class="ps-check"><input type="checkbox" data-preset="${p.id}" data-cat="${c}" ${on ? 'checked' : ''} ${full ? 'disabled' : ''} aria-label="${esc(p.label)}"><i>${I.check}</i></span><span class="ps-label">${esc(p.label)}</span></label>`;
+      }).join('');
+      return `<div class="ps-col"><div class="ps-head"><span class="dot ${c}"></span><b>${CAT_PLURAL[c]}</b><small class="num">${chosen.length} de ${max}</small></div><div class="ps-list">${rows}</div></div>`;
+    }).join('');
+    const scroll = el.querySelector('.ps-grid')?.scrollTop || 0;
+    el.innerHTML = `<section class="welcome presets-sheet glass" data-lens="presets" role="dialog" aria-modal="true" aria-labelledby="ps-title">
+      <div class="ps-top"><span class="qp-icon">${I.bolt}</span><div><h2 id="ps-title">Atalhos de 1 clique</h2>
+        <p>Até ${max} por tipo. Aparecem ${where}, nesta ordem, e convertem sem abrir o app. "Mais formatos" e "Abrir no MINIME" ficam sempre.</p></div></div>
+      <div class="ps-grid">${cols}</div>
+      <div class="ps-foot"><button class="btn small" data-act="presets-reset">Voltar ao padrão</button><span class="grow"></span><button class="btn" data-act="presets-close">Cancelar</button><button class="btn primary" data-act="presets-save">Salvar</button></div>
+    </section>`;
+    el.querySelector('.ps-grid').scrollTop = scroll;
+    refreshLenses(el);
+  }
+  function presetsDraftReset() { presetsDraft = structuredClone(presetsData.defaults); renderPresetsSheet(); }
+  function closePresetsSheet() { document.getElementById('presets-sheet')?.remove(); presetsDraft = null; }
+  async function savePresetsSheet() {
+    try {
+      await api.setPresets(presetsDraft);
+      closePresetsSheet();
+      toast(state.menuOn === false ? 'Atalhos salvos. Ligue o menu nas Preferências pra usar.' : 'Atalhos salvos.');
+    } catch (e) { toast(`Não consegui salvar: ${e.message || e}`); }
+  }
+  function togglePresetDraft(id, cat, on) {
+    const order = presetsData.list.filter((p) => p.cat === cat).map((p) => p.id);
+    const set = new Set(presetsDraft[cat]);
+    if (on) set.add(id); else set.delete(id);
+    presetsDraft[cat] = order.filter((x) => set.has(x)).slice(0, presetsData.max);
+    renderPresetsSheet();
   }
 
   // ---------- Boas-vindas (primeiro uso) ----------
@@ -1090,7 +1313,12 @@
     }
     state.phase = 'converting';
     state.summary = null;
-    for (const it of list) { it.status = 'queued'; it.progress = 0; it.convError = null; }
+    for (const it of list) {
+      it.status = 'queued'; it.progress = 0; it.convError = null; it.eta = null;
+      // Só conta como IA o que a estimativa confirmou que vai crescer (4K, SVG e animação saem sem IA).
+      const d = it.est && it.est.detail;
+      it.ai = !!(d && d.upscale && d.w) && (kindOf(it) === 'image' ? state.settings.image.upscale !== 'off' : !!state.settings.video.upscale);
+    }
     render();
     let summary;
     try {
@@ -1101,13 +1329,27 @@
     state.summary = summary;
     state.phase = 'done';
     render();
+    if (state.preset && state.lateFiles.length) {
+      const late = state.lateFiles.splice(0);
+      // O que falhou ou foi cancelado sai da lista: a próxima rodada converte só os que chegaram atrasados.
+      const drop = state.items.filter((i) => ['error', 'cancelled'].includes(i.status)).map((i) => i.id);
+      if (drop.length) { state.items = state.items.filter((i) => !drop.includes(i.id)); api.removeItems(drop); }
+      setTimeout(() => addPaths(late), 600);
+    }
   }
 
   api.onProgress((ev) => {
     const it = byId(ev.id);
     if (!it) return;
+    if (ev.status === 'running' && it.status !== 'running') it.runStart = performance.now();
     it.status = ev.status;
     if (ev.progress !== undefined) it.progress = ev.progress;
+    if (ev.eta !== undefined && ev.eta !== null) it.eta = ev.eta;
+    else if (it.ai && it.status === 'running' && it.runStart && it.progress > 0.06) {
+      // Foto com IA não manda previsão: calcula pelo ritmo até aqui.
+      const el = (performance.now() - it.runStart) / 1000;
+      if (el > 5) it.eta = Math.round((el / it.progress) * (1 - it.progress));
+    }
     if (ev.outPath) it.outPath = ev.outPath;
     if (ev.outSize !== undefined) it.outSize = ev.outSize;
     if (ev.error) it.convError = ev.error;
@@ -1186,6 +1428,11 @@
         break;
       }
       case 'close': api.close(); break;
+      case 'preset-adjust': clearTimeout(autoTimer); state.presetManual = true; render(); break;
+      case 'presets': openPresetsSheet(); break;
+      case 'presets-reset': presetsDraftReset(); break;
+      case 'presets-save': savePresetsSheet(); break;
+      case 'presets-close': closePresetsSheet(); break;
       default: break;
     }
   });
@@ -1256,18 +1503,28 @@
   });
 
   document.addEventListener('change', async (e) => {
+    const ps = e.target.closest('[data-preset]');
+    if (ps && presetsDraft) { togglePresetDraft(ps.dataset.preset, ps.dataset.cat, ps.checked); return; }
     const c = e.target.closest('[data-check]');
     if (!c) return;
     if (c.dataset.check === 'menu') {
       c.disabled = true;
       try {
         state.menuOn = await api.setMenu(c.checked);
-        toast(state.menuOn ? 'Menu do botão direito ativado.' : 'Menu do botão direito removido.');
-      } catch (err) { toast(`Não consegui mudar o menu: ${err.message || err}`); }
+        toast(IS_MAC ? (state.menuOn ? 'Ações Rápidas ativadas no Finder.' : 'Ações Rápidas removidas do Finder.')
+          : (state.menuOn ? 'Menu do botão direito ativado.' : 'Menu do botão direito removido.'));
+      } catch (err) { toast(String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
       c.checked = !!state.menuOn; c.disabled = false;
       return;
     }
     const [kind, key] = c.dataset.check.split('.');
+    if (c.dataset.check === 'video.upscale') {
+      // Com a IA, "Sem perda" (só troca a embalagem) não vale: volta pro Equilibrado.
+      const patch = { upscale: c.checked };
+      if (c.checked && state.settings.video.objective === 'copy') Object.assign(patch, { objective: 'balanced', quality: 60 });
+      setSetting('video', patch);
+      return;
+    }
     if (kind === 'pref') {
       c.disabled = true;
       try { state.prefs = await api.setPrefs({ [key]: c.checked }); } catch {}
@@ -1283,6 +1540,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('presets-sheet')) { closePresetsSheet(); e.preventDefault(); return; }
     if (popover.hidden) return;
     if (e.key === 'Escape') { const a = menu && menu.anchor; closeMenu(); a?.focus(); e.preventDefault(); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1347,8 +1605,16 @@
     }).catch(() => {});
     api.system().then((sys) => { state.system = sys; }).catch(() => {});
     api.hardware().then((hw) => { state.hw = hw; renderSettings(); }).catch(() => {});
+    api.aiInfo().then((a) => { state.ai = a; renderSettings(); }).catch(() => {});
     const l = await api.getLaunch();
     if (l.mode === 'quick') state.quickTarget = l.target;
+    if (l.mode === 'quick' && l.preset) {
+      // Atalho: ajustes do próprio atalho por cima dos padrões (não grava nada no que o usuário salvou).
+      state.preset = l.preset;
+      state.quickTarget = l.preset.target;
+      state.settings = mergeSettings(null);
+      for (const k of ['image', 'video', 'audio']) if (l.preset[k]) Object.assign(state.settings[k], l.preset[k]);
+    }
     if (l.files && l.files.length) await addPaths(l.files);
     else render();
     api.onLaunchAdd((d) => addPaths(d.files));

@@ -228,13 +228,68 @@ function planAudioToVideo(info, as, k) {
   return { args, estimate: ((vBits + k * 1000) * dur) / 8 * 1.02, detail: { kbps: k, background: bg } };
 }
 
+// ---------- Vídeo ampliado com IA (quadros crus RGB chegando pelo stdin) ----------
+
+// Destinos que aceitam o "Aumentar com IA" (GIF e áudio não fazem sentido).
+const UPSCALE_TARGETS = new Set(['mp4', 'mkv', 'mov', 'webm', 'avi']);
+// IA ligada e o motor de vídeo roda neste computador (a tela desliga o que não roda; aqui vale a mesma regra).
+const videoAiOn = (vs) => !!(vs && vs.upscale) && require('./upscale').modeAvailable('video');
+const wantsUpscale = (item, target, vs) => videoAiOn(vs) && item.category === 'video' && UPSCALE_TARGETS.has(target);
+
+// Matriz de cor da fonte: sem etiqueta, HD é BT.709 e SD é BT.601 (como os players assumem).
+function sourceMatrix(v) {
+  const cs = String((v && v.colorSpace) || '');
+  if (cs === 'bt709') return 'bt709';
+  if (cs === 'bt2020nc' || cs === 'bt2020c') return 'bt2020';
+  if (cs === 'smpte170m' || cs === 'bt470bg') return 'smpte170m';
+  return v && Math.min(v.width, v.height) >= 720 ? 'bt709' : 'smpte170m';
+}
+
+// args do encoder: entrada 0 = quadros RGB no tamanho final, entrada 1 = arquivo original (áudio).
+function planUpscaleEncode(info, target, vs, hw, dims, fps) {
+  const enc = pickVideoEncoder(target, vs, hw);
+  const b = videoBitrate(vs.quality, dims, fps, enc.codec, 0);
+  const pix = enc.encoder.endsWith('_qsv') ? 'nv12' : 'yuv420p';
+  let audio = ['-an'], aBits = 0;
+  if (info.audio.length) {
+    const want = { mp4: 'aac', mov: 'aac', mkv: 'aac', webm: 'opus', avi: 'mp3' }[target];
+    if (info.audio.every((a) => a.codec === want)) { audio = ['-map', '1:a?', '-c:a', 'copy']; aBits = info.audio.reduce((s, a) => s + (a.bitrate || 160000), 0); }
+    else {
+      const k = want === 'opus' ? 128 : 192;
+      const extra = want === 'opus' && info.audio.some((a) => a.channels > 2) ? ['-ac', '2'] : [];
+      audio = ['-map', '1:a?', '-c:a', { aac: 'aac', opus: 'libopus', mp3: 'libmp3lame' }[want], '-b:a', `${k}k`, ...extra];
+      aBits = k * 1000 * info.audio.length;
+    }
+  }
+  const args = ['-map', '0:v:0', ...audio,
+    '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=${pix}`,
+    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    ...encoderArgs(enc, b), ...containerArgs(target, enc.codec), '-shortest'];
+  return { args, bitrate: b, audioBitrate: aBits, encoder: enc.encoder, gpu: enc.gpu };
+}
+
+// Estimativa do vídeo ampliado (sem rodar a IA).
+function planUpscale(info, target, vs, hw, dims) {
+  const fps = Math.min(60, (info.video && info.video.fps) || 30);
+  const e = planUpscaleEncode(info, target, vs, hw, dims, fps);
+  const est = ((e.bitrate + e.audioBitrate) * (info.duration || 0)) / 8 * 1.015;
+  return { args: [], estimate: est, detail: { upscale: true, bitrate: e.bitrate, encoder: e.encoder, gpu: e.gpu, w: dims.w, h: dims.h } };
+}
+
 // Monta o comando completo: ffmpeg [entradas] [args] saída.
 function plan(item, target, settings, hw) {
   const kind = outputKind(item.category, target);
   const info = item.info;
   let p;
+  // Com a IA ligada a tela esconde a "Resolução": quem não cresce (GIF, já em 4K) mantém a resolução original.
+  const vsPlain = videoAiOn(settings.video) ? { ...settings.video, resolution: 'original', upscale: false } : settings.video;
   if (kind === 'audio') p = planAudio(info, target, settings.audio, item.category);
-  else p = planVideo(info, target, settings.video, hw);
+  else if (wantsUpscale(item, target, settings.video)) {
+    const dims = require('./upscale').targetDimsVideo(info.video.width, info.video.height);
+    // Já está em 4K: converte normal, sem IA.
+    if (dims) p = planUpscale(info, target, settings.video, hw, dims);
+    else { p = planVideo(info, target, vsPlain, hw); p.detail = { ...p.detail, aiAlready: true }; }
+  } else p = planVideo(info, target, vsPlain, hw);
   // Entradas extras (lavfi) precisam vir depois do -i principal pra numeração [0] ser o arquivo.
   const inputArgs = p.inputArgs || [];
   const argsWithInput = [...inputArgs, '-i', item.path, ...p.args];
@@ -265,4 +320,7 @@ async function convert(item, target, settings, hw, outPath, { onProgress, signal
   return p;
 }
 
-module.exports = { plan, convert, capabilities, canRemux, outputKind, audioKbps, videoBitrate, outDims, gifParams };
+module.exports = {
+  plan, convert, capabilities, canRemux, outputKind, audioKbps, videoBitrate, outDims, gifParams,
+  wantsUpscale, videoAiOn, planUpscaleEncode, sourceMatrix, UPSCALE_TARGETS,
+};
